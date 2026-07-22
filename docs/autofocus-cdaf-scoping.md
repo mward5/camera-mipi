@@ -221,16 +221,24 @@ the need for Option A's plumbing work.
    the same values, is itself worth confirming empirically in Phase 1 before
    assuming AGC-locking requires touching `agc.cpp`).
 
-   **Partially confirmed 2026-07-22, worse than "risk" — this is real and
-   already corrupted a first measurement attempt.** See Phase 0's "Run
-   2026-07-22" results below: exposure drifted 6.5× across a 16-position
-   sweep with no genuine per-position convergence, because AGC's convergence
-   rate is too slow relative to a short per-position `cam` process's frame
-   budget, and state leaked across positions via the sensor's persisted V4L2
-   exposure register. Locking (or otherwise controlling for) AGC during a
-   scan is no longer a hypothetical risk to design around later — it's a
-   confirmed prerequisite for Phase 1's harness to produce trustworthy data
-   at all.
+   **2026-07-22: root cause found, then resolved for the static-scene case.**
+   Phase 0's first attempt found exposure drifting 6.5× across a 16-position
+   sweep with no genuine per-position convergence, because each position was
+   a separate short-lived `cam` process and AGC's slow, smoothed convergence
+   never caught up within one 6-frame burst before state leaked into the
+   next position via the sensor's persisted V4L2 exposure register. Phase
+   1's continuous-session harness (single `cam` process, focus changed
+   mid-stream) fixed this completely: `ExposureTime` read back **identical
+   on all 486 frames** of a full 0–960 sweep. **No explicit AGC-locking
+   mechanism is needed for a static scene** — a continuous session is
+   sufficient by itself, so `soft_simple.cpp`'s `setSensorControls.emit()`
+   re-overwriting an externally-forced value was never actually a problem in
+   practice, because nothing needs to force a value in the first place.
+   **Still open**: this only tested AGC sitting still on an already-converged
+   static scene *before* the sweep started — not what happens *during* an
+   active scan against a scene whose apparent brightness might itself be
+   changing as focus sweeps (e.g. a strongly out-of-focus bright light
+   source). That case hasn't been tested yet.
 
 ## Phased plan
 
@@ -294,7 +302,8 @@ writes + timestamp correlation), better scoped as first-class Phase 1 work.
 
 **Done when:** re-run with a continuous-session harness produces a sharpness-
 vs-position curve with a real peak/fall shape, from which settle time and
-usable range can be read off with confidence — not yet reached.
+usable range can be read off with confidence — **reached, see Phase 1's
+2026-07-22 results below**, which built exactly that harness.
 
 ### Phase 1 — standalone CDAF prototype + hill-climb validation (Option B)
 
@@ -320,10 +329,67 @@ producing the tuning constants Phase 3's in-tree algorithm will need.
   answer plus the final metric/step-size/threshold choices — now more
   important given AF runs continuously, not just in discrete windows.
 
-**Files touched:** new tool, location TBD (`scripts/` or a new `tools/`
-directory in `~/work/camera-mipi`, now a git repo as of 2026-07-22 — commit it
-there once it's stable, don't leave it as untracked scratch work indefinitely).
-No libcamera/kernel changes.
+**Run 2026-07-22 — continuous-session harness built and validated; AGC
+confound eliminated; a real (if noisy) focus curve obtained.**
+`scripts/af-continuous-sweep.sh` replaces per-position `cam` relaunches with
+one continuous background `cam` session (captured at 800×600 instead of full
+sensor resolution — ~1.4MB/frame vs. ~33MB, confirmed the `simple` pipeline
+honors `-s width=,height=,role=viewfinder` — so a real sweep stays a few
+hundred MB) while this script writes `focus_absolute` from a concurrent
+process against the separate lens subdev. `cam`'s own per-frame timestamps
+turned out to be on a different clock epoch than `/proc/uptime` (~120s apart
+on this boot — consistent with `CLOCK_MONOTONIC` vs. an uptime clock that
+includes suspended time), so the script polls for the first frame and
+calibrates a one-time offset rather than assuming the clocks match.
+`scripts/af-analyze-continuous.py` correlates frames to positions via that
+offset and computes Laplacian variance per frame.
+
+Result, sweeping 0–960 (step 64, ~1s hold/position, 486 frames, 669MB, in
+`~/work/af-sweep-data/run2-continuous`):
+- **AGC confound gone**: `ExposureTime` read back **exactly 39184 on every
+  single one of 486 frames**, the whole sweep through. Confirms the
+  hypothesis from Phase 0's first run — AGC converges once during the
+  settle window and, with a single continuous session instead of per-
+  position process relaunch, has no reason to move again for a static scene.
+  Unknown 4 (AGC interaction) is now resolved for the "hold a static scene"
+  case: **no explicit locking mechanism is needed**, a continuous session is
+  sufficient on its own. (Still open: behavior *during* an active scan, where
+  the scene *is* changing frame-to-frame as focus sweeps — this run didn't
+  test that, since AGC had already converged before the first focus write.)
+- **A real sharpness signal, not just exposure/motion-blur noise**: mean
+  sharpness spread across the sweep was 13% of average (vs. 104% in Phase
+  0's confounded first run), and the curve has 3 sign changes (rises and
+  falls, not monotonic) — peaking at position 640 (mean 1483.3). Take this
+  specific peak position with real caution, though: single scene, single
+  run, laptop handheld/resting rather than tripod-mounted, 800×600 not full
+  resolution. It's evidence the metric and methodology now work, not yet a
+  calibrated "this is where this scene focuses" constant.
+- **Settle-time signal, inconclusive so far**: inspecting individual bursts'
+  frame-by-frame sharpness (`analysis.csv`'s `frames_since_change` column),
+  most sampled positions (e.g. 640, 960) look stable from the first frame
+  after the move with no visible multi-frame ramp, while others (e.g. 192)
+  show swings of comparable size throughout the whole ~1s hold — plausibly
+  handheld camera shake rather than lens settling, but not separated from a
+  genuine settle effect in this run. Tentative read: for a 64-unit step,
+  settle time is likely ≲1 frame interval (~40ms) or is being masked by
+  shake noise of similar magnitude — **not a confident number yet**. A
+  repeat with the laptop resting stationary (eliminating handshake as a
+  noise source) and varying step size (small vs. full-range jumps, per
+  unknown 1's original framing) would give a real answer.
+
+**Not yet done, natural next steps**: repeat with the camera stationary to
+separate settle time from handshake noise; test AGC behavior *during* an
+active scan (not just before one); try a finer step size and/or multiple
+repeated sweeps to get a more confident peak-position estimate and check for
+local-maxima noise in the metric; compare Laplacian variance against
+Tenengrad on the same dataset (unknown 2 asked for a comparison, only one
+metric has been tried so far).
+
+**Files touched:** `scripts/af-continuous-sweep.sh` (harness) and
+`scripts/af-analyze-continuous.py` (analysis) — landed in `scripts/`, not a
+new `tools/` dir, and already committed. Still needed: the actual hill-climb
+control loop (these two scripts only sweep + measure, they don't yet drive a
+converge-and-track algorithm). No libcamera/kernel changes.
 
 **Done when:** the tool reliably converges focus across multiple real scenes
 with a documented, repeatable success rate, **and** demonstrates stable
