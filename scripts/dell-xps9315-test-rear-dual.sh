@@ -2,13 +2,29 @@
 # Manual dual-stream rear test (raw + PAFi metadata) without libcamera.
 set -euo pipefail
 
-MDEV="${MDEV:-/dev/media0}"
 OUT="${1:-/tmp/rear-dual.raw}"
 META="${2:-/tmp/rear-pdaf.bin}"
 
 systemctl --user stop wireplumber pipewire pipewire.socket 2>/dev/null || true
 killall -9 wireplumber pipewire cam 2>/dev/null || true
 sleep 1
+
+# Media device numbering isn't stable across boots (confirmed 2026-07-22: a
+# USB webcam can take /dev/media0, pushing the IPU6 controller to /dev/media1)
+# - find it by driver name instead of assuming a fixed number.
+MDEV="${MDEV:-}"
+if [ -z "$MDEV" ]; then
+	for d in /dev/media*; do
+		if media-ctl -d "$d" -p 2>/dev/null | grep -q '^driver.*intel-ipu6'; then
+			MDEV="$d"
+			break
+		fi
+	done
+fi
+if [ -z "$MDEV" ]; then
+	echo "Could not find the intel-ipu6 media device among /dev/media*" >&2
+	exit 1
+fi
 
 SENSOR=$(media-ctl -d "$MDEV" -e "s5k3j1 1-0010")
 CSI2=$(media-ctl -d "$MDEV" -e "Intel IPU6 CSI2 1")

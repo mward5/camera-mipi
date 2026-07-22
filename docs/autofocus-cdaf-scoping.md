@@ -221,29 +221,87 @@ the need for Option A's plumbing work.
    the same values, is itself worth confirming empirically in Phase 1 before
    assuming AGC-locking requires touching `agc.cpp`).
 
+   **Partially confirmed 2026-07-22, worse than "risk" — this is real and
+   already corrupted a first measurement attempt.** See Phase 0's "Run
+   2026-07-22" results below: exposure drifted 6.5× across a 16-position
+   sweep with no genuine per-position convergence, because AGC's convergence
+   rate is too slow relative to a short per-position `cam` process's frame
+   budget, and state leaked across positions via the sensor's persisted V4L2
+   exposure register. Locking (or otherwise controlling for) AGC during a
+   scan is no longer a hypothetical risk to design around later — it's a
+   confirmed prerequisite for Phase 1's harness to produce trustworthy data
+   at all.
+
 ## Phased plan
 
 ### Phase 0 — instrument and measure (done: a first-draft script exists)
 
 **Goal:** answer unknowns 1 and 3, and gather the raw data for unknown 4's
-AGC-drift question. `scripts/af-sweep-measure.sh` (written this session, **not
-yet run against hardware**) sweeps `focus_absolute` in configurable steps
-across 0–1023 via the `lc898217 1-0072` subdev, capturing a burst of frames +
-`cam --metadata` output at each position into `/tmp/af-sweep/` (or an
-overridable `OUTDIR`), indexed by a `sweep.csv`.
+AGC-drift question. `scripts/af-sweep-measure.sh` sweeps `focus_absolute` in
+configurable steps across 0–1023 via the `lc898217 1-0072` subdev, capturing a
+burst of frames + `cam --metadata` output at each position, indexed by a
+`sweep.csv`. `scripts/af-analyze-sweep.py` (a minimal early Phase 1 tool, PIL
+only — no numpy on this box) computes a Laplacian-variance sharpness metric on
+a central 800×800 crop of each frame to check whether a sweep's data actually
+shows focus variation.
 
-**Files touched:** `scripts/af-sweep-measure.sh` only. No libcamera/kernel
-changes.
+**Files touched:** `scripts/af-sweep-measure.sh`, `scripts/af-analyze-sweep.py`.
+No libcamera/kernel changes.
 
-**Done when:** the script has been run against real hardware on a scene with
-real depth variation, producing a dataset from which settle time and usable
-range can be read off by a human or Phase 1's analysis tool.
+**Run 2026-07-22 — real findings, dataset not yet clean enough to trust.**
+First run hit an environment bug: the script (copying
+`dell-xps9315-test-rear-dual.sh`'s convention) hardcoded `/dev/media0` for the
+IPU6 controller, but on this boot a USB webcam took `/dev/media0` and pushed
+IPU6 to `/dev/media1` — media device numbering isn't stable across boots.
+Fixed by detecting the device by driver name (`intel-ipu6`) instead of
+assuming a number; `scripts/dell-xps9315-test-rear-dual.sh` has the same
+latent bug, not yet fixed there.
+
+After the fix, a full sweep ran cleanly (16 positions, step 64, 6 frames/burst,
+~3GB, no capture errors, lens position readback matched every write including
+at the top of the range — no visible clipping at 1023 in this run, a small
+data point for the still-open 10-bit/11-bit question). But
+`af-analyze-sweep.py` surfaced two real confounds that mean **this dataset
+can't yet answer unknown 3 (usable range) reliably**:
+1. **Every burst's first frame is degenerate** (sharpness reads 0 at every
+   single position, 16/16) — clearly systematic, not noise. Discard frame 0
+   of any burst as a standing convention.
+2. **AGC never reaches steady state per position, and visibly carries state
+   across positions.** Exposure climbed monotonically from 344 (position 0)
+   to 2250 (position 960) — a 6.5× drift — with gain pinned at 1.0. Inside a
+   single burst (e.g. position 384: `689,689,689,689,689,757`) exposure sits
+   flat for 5 frames then steps once at the end — the signature of AGC taking
+   one slow, smoothed step per short-lived `cam` process invocation, inherited
+   from whatever the *previous* position's process left in the sensor's
+   hardware exposure register (a real V4L2 control, so it persists across
+   process boundaries), not converging fresh each time. Mean sharpness then
+   declines almost monotonically across the sweep with no peak-and-fall shape
+   a real focus curve should have — consistent with the metric tracking
+   exposure-driven brightness/motion-blur drift more than actual focus.
+
+**Implication for the harness design, not yet built:** per-position
+short-lived `cam` processes are the wrong methodology — AGC's convergence
+rate is evidently too slow relative to a 6-frame burst, and the *inter*-burst
+state leakage makes positions non-independent measurements. A clean re-run
+needs a single continuous `cam`/capture session with focus_absolute changed
+mid-stream (from a second concurrent process against the lens subdev, which
+is a separate device node from the video capture node) rather than one
+process per position — closer to how the real hill-climb algorithm would
+operate anyway (see Phase 1 below, which should build this rather than the
+Phase 0 script attempting it). Deferred rather than built this session — a
+genuinely more involved harness (background process + concurrent focus
+writes + timestamp correlation), better scoped as first-class Phase 1 work.
+
+**Done when:** re-run with a continuous-session harness produces a sharpness-
+vs-position curve with a real peak/fall shape, from which settle time and
+usable range can be read off with confidence — not yet reached.
 
 ### Phase 1 — standalone CDAF prototype + hill-climb validation (Option B)
 
 **Goal:** answer unknown 2 definitively, and validate a real closed-loop
-hill-climb end-to-end against physical hardware, producing the tuning
-constants Phase 3's in-tree algorithm will need.
+**continuous** AF loop end-to-end against physical hardware (per the
+2026-07-22 decision above — single-shot was rejected as impractical),
+producing the tuning constants Phase 3's in-tree algorithm will need.
 
 - Build a small analysis/control tool (language TBD — doesn't need to match
   libcamera's C++, this is throwaway research code) that reads Phase 0's
@@ -252,16 +310,27 @@ constants Phase 3's in-tree algorithm will need.
   `afCoarseScan()`/`afFineScan()`/`afScan()` shape, but calling `v4l2-ctl`
   directly instead of reading IPU3 hardware stats), using Phase 0's measured
   settle time to pace each step.
+- Beyond a single converge-and-stop run: validate a **continuous** loop that,
+  after converging, keeps monitoring the sharpness metric on live frames and
+  only re-triggers a new scan once it's degraded past some threshold — and
+  tune that threshold/debounce so a static scene doesn't visibly hunt. This is
+  the part a single-shot design wouldn't have needed at all, so treat it as
+  first-class validation work, not an afterthought once convergence works.
 - Explicitly resolve the AGC-locking question from unknown 4 and record the
-  answer plus the final metric/step-size/threshold choices.
+  answer plus the final metric/step-size/threshold choices — now more
+  important given AF runs continuously, not just in discrete windows.
 
 **Files touched:** new tool, location TBD (`scripts/` or a new `tools/`
-directory — this project isn't a git repo, so no branch/PR concerns, just pick
-a location when this phase starts). No libcamera/kernel changes.
+directory in `~/work/camera-mipi`, now a git repo as of 2026-07-22 — commit it
+there once it's stable, don't leave it as untracked scratch work indefinitely).
+No libcamera/kernel changes.
 
 **Done when:** the tool reliably converges focus across multiple real scenes
-with a documented, repeatable success rate, and the chosen metric/constants/
-AGC-interaction handling are written down here for Phase 3 to consume.
+with a documented, repeatable success rate, **and** demonstrates stable
+continuous operation (re-scans when the scene/focus genuinely changes, stays
+quiet on a static scene) over an extended run, not just a single convergence.
+The chosen metric/constants/AGC-interaction/hysteresis handling are written
+down here for Phase 3 to consume.
 
 ### Phase 2 — in-tree `soft.mojom` + `SwIspStats` plumbing (Option A, part 1)
 
@@ -297,21 +366,28 @@ the algorithm.
 
 ### Phase 3 — real `Af` algorithm class (Option A, part 2)
 
-**Goal:** port Phase 1's validated algorithm into the in-tree
-`Algorithm<Module>` structure.
+**Goal:** port Phase 1's validated **continuous** algorithm into the in-tree
+`Algorithm<Module>` structure, running automatically with zero app
+cooperation required (per the 2026-07-22 decision above) — the same way
+`Agc`/`Awb` already run on every frame today with no app involvement.
 
 - Add `src/ipa/simple/algorithms/af.{h,cpp}` implementing `prepare()`/
   `process()`/`configure()`/`queueRequest()` as needed, following `agc.h`/
   `agc.cpp`'s shape (closest existing example of a per-frame stats-driven
   algorithm in this IPA — `ipu3`/`rpi`'s `af.cpp` are algorithmically similar
   but built around hardware stats this path doesn't have).
-- Port Phase 1's hill-climb, reading the new `SwIspStats` sharpness field and
+- Port Phase 1's continuous monitor-and-rescan loop (not a one-shot
+  converge-and-stop), reading the new `SwIspStats` sharpness field and
   emitting the new `setLensControls` signal instead of direct V4L2 writes.
+  **Default the algorithm to always running** — it must not require an app to
+  write `AfTrigger` (which stays internal-only per Open Question #2) to do
+  anything at all.
 - If Phase 1 found AGC-locking necessary, implement it via shared
   `IPAContext`/`IPAFrameContext` coordination between `Af` and `Agc` — a new
   touchpoint, not present today.
-- Register `Af:` in `s5k3j1.yaml`'s `algorithms:` list; advertise
-  `AfMode`/`AfState`/etc. per Open Questions #2.
+- Register `Af:` in `s5k3j1.yaml`'s `algorithms:` list; keep
+  `AfMode`/`AfState`/etc. internal/debug-only per Open Questions #2 (no
+  app-facing control contract yet).
 
 **Files touched:** new `src/ipa/simple/algorithms/af.{h,cpp}`,
 `src/ipa/simple/algorithms/meson.build`, `src/ipa/simple/data/s5k3j1.yaml`,
@@ -319,43 +395,65 @@ the algorithm.
 `src/ipa/simple/algorithms/agc.{h,cpp}` and shared context/module headers if
 AGC coordination is needed.
 
-**Done when:** `cam` (or `scripts/dell-xps9315-test-rear-cam.sh`) run against
-the real pipeline handler autofocuses a real scene end-to-end, no external
-harness involved, matching or exceeding Phase 1's measured convergence
-reliability.
+**Done when:** an app with zero AF-awareness — GNOME's Camera/Snapshot app is
+the concrete target, not just `cam`/`scripts/dell-xps9315-test-rear-cam.sh` —
+shows continuously-in-focus rear-camera video with no control writes from the
+app at all, matching or exceeding Phase 1's measured continuous-operation
+reliability (converges on real changes, stays quiet on a static scene).
 
 ## Open questions (decide explicitly, don't drift into an answer)
 
-1. **Single-shot AF only, vs. continuous AF (`AfModeContinuous`)?**
-   Recommend scoping Phases 1–3 to single-shot/triggered AF only, and treating
-   continuous AF as an explicit non-goal to revisit later — continuous AF has
-   materially different timing and AGC-interaction requirements (a live scene,
-   not a static target; needs to re-trigger without user action).
-2. **Expose `AfTrigger`/`AfState`/`AfMode` to applications now, or keep AF
-   internal/debug-only during Phase 3?** Exposing the full control set commits
-   to a stable app-facing contract before the algorithm is proven. Recommend
-   internal/debug-only in early Phase 3, full exposure deferred.
-3. **Would any real client on this system actually consume these controls if
-   added?** Not checked yet — worth a cheap look before investing in full
-   control exposure: does GNOME's Camera/Snapshot app (or anything else on
-   this system using libcamera) call `AfTrigger`/read `AfState` at all, or
-   would it ignore them regardless? Determines whether Phase 3's "done"
-   criterion needs an app-level demo or only a `cam`-CLI-level one.
+1. **Decided 2026-07-22: continuous AF is the actual goal, not single-shot.**
+   Original recommendation (scope to single-shot/triggered AF only, treat
+   continuous as a later non-goal) was rejected — single-shot AF isn't
+   practical for real-world use (a laptop's rear camera is a live, moving
+   scene; nobody's going to press a trigger control before every shot). This
+   changes the shape of Phases 1 and 3 non-trivially, see the updates to those
+   sections below: the algorithm needs a "monitor current focus quality, only
+   re-scan when it's degraded enough to be worth the disruption" loop, not
+   just a single converge-and-stop hill-climb, and needs hysteresis/debounce
+   tuning to avoid visibly hunting on a static scene. AGC interaction (unknown
+   4 above) also gets more important, not less — AF is now running literally
+   all the time instead of during discrete triggered windows.
+2. **Decided 2026-07-22 (no objection to the recommendation): keep
+   `AfTrigger`/`AfState`/`AfMode` internal/debug-only through Phase 3**, full
+   app-facing control exposure deferred to a later effort.
+3. **Decided 2026-07-22, and combines with #1 and #2 into the core design
+   requirement: AF must work with zero app cooperation.** For this to be
+   useful at all, a client that has no idea `Af` controls exist — today's
+   GNOME Camera/Snapshot app, or the plain `cam` CLI — must still see
+   continuously-in-focus video, the same way `Agc`/`Awb` already run
+   automatically every frame today with no app involvement. Concretely: `Af`
+   must default to running continuously and autonomously inside the IPA (like
+   `Agc`, not gated behind an app ever writing `AfTrigger`), and Phase 3's
+   "done" criterion is an app-level demo, not just a `cam`-CLI/debug-control
+   demo — see the updated Phase 3 section below. Keeping the controls
+   internal-only (#2) is compatible with this: they're for future
+   observability/override, not a requirement for basic function.
 4. **`setLensControls` mojom shape** — dedicated signal (rpi pattern) vs.
-   extending the existing `setSensorControls` signal (ipu3 pattern). Recommend
-   the dedicated signal for clarity; decide before Phase 2 starts.
+   extending the existing `setSensorControls` signal (ipu3 pattern). Per
+   2026-07-22 direction, left as originally proposed: decide when Phase 2
+   actually starts, not now.
 5. **Whether to ever expose the kernel driver's undocumented `GetStatus`/
    `GetPos` protocol (reg `0x0A`) as a real busy/settle signal**, vs. relying
    on Phase 0's fixed empirically-measured delay. Only worth pursuing if
    Phase 0 finds settle time is highly variable and a fixed delay can't safely
    cover it — a kernel-driver change, separate scope from the userspace/IPA
-   phases above. Deferred/conditional, not committed.
+   phases above. Deferred/conditional, not committed. **Still open** — not yet
+   revisited in light of #1's continuous-AF decision, which may raise the
+   stakes here: a continuous loop re-scanning periodically for the life of a
+   session hits this path far more often than a one-shot trigger would, so a
+   flaky fixed-delay assumption is more likely to surface as visible bad
+   behavior (premature or late re-scans) than it would have under the
+   original single-shot scoping. Worth deciding once Phase 0 data exists,
+   not before.
 6. **10-bit vs. 11-bit DAC range ambiguity** (open in
    `docs/vcm-investigation-lc898217.md`, distinct from but related to unknown
    3 above) — Phase 0's sweep should incidentally surface clipping/wraparound
    above `0x3FF` if present; check for it explicitly rather than assuming
-   Phase 0 resolves it just by having run.
+   Phase 0 resolves it just by having run. **Still open.**
 7. **Keep Phase 1's standalone harness after Phase 3 lands, or discard it?**
    Recommend keeping it — cheap to keep, useful as an external validation
    baseline for in-tree AF performance. Location (`scripts/` vs. a new
-   `tools/` dir) to be settled when Phase 1 starts.
+   `tools/` dir) to be settled when Phase 1 starts. **Still open** (no
+   objection expected, but not explicitly confirmed).

@@ -1721,15 +1721,27 @@ on my machine."
       useful for this despite being XML/human-readable. Realistic scope: the soft ISP only
       consumes a small subset (black level, AWB gains, a 3x3 CCM, gamma) — don't expect to
       consume the `.aiqb` wholesale, just mine those specific fields once the format is known.
-- [ ] **Real closed-loop autofocus for the rear camera — scoping done 2026-07-22, not yet
-      started.** Full architecture options (in-tree `libipa::Algorithm` vs. a standalone
-      userspace CDAF prototype, recommend the latter first), genuine unknowns to measure
-      (lens settle time, sharpness metric choice, usable 0–1023 range, AGC interaction), a
-      4-phase roadmap with file-by-file touch lists, and open scoping questions are all in
-      `docs/autofocus-cdaf-scoping.md`. A first-draft Phase 0 measurement harness,
-      `scripts/af-sweep-measure.sh`, exists but has **not yet been run against hardware**.
-      PDAF context (dead end on this kernel, WIP archived in `~/work/git-ubuntu/libcamera`
-      branch `pdaf-sideband-wip`) is preserved in that doc rather than here.
+- [ ] **Real closed-loop autofocus for the rear camera — scoped 2026-07-22, Phase 0 run once
+      with real findings, dataset not yet clean.** Full architecture options, decisions made
+      2026-07-22 (continuous AF is the actual goal, not single-shot; must work with zero app
+      cooperation, like `Agc`/`Awb` already do), a 4-phase roadmap, and open questions are all
+      in `docs/autofocus-cdaf-scoping.md`. `scripts/af-sweep-measure.sh` (Phase 0 harness) ran
+      against real hardware: found and fixed a `/dev/media0`-vs-`/dev/media1` numbering bug
+      (media device enumeration order isn't stable across boots — same fix applied to
+      `dell-xps9315-test-rear-dual.sh`, which had the identical latent bug), then produced a
+      16-position sweep
+      (~3GB, `~/work/af-sweep-data/run1`, outside the repo). `scripts/af-analyze-sweep.py`
+      (first Phase 1 tool) found the dataset isn't trustworthy yet: every burst's first frame
+      reads as blank (systematic, discard as convention), and AGC exposure drifted 6.5× across
+      the sweep with no real per-position convergence (state leaks across positions because
+      each position is a separate short-lived `cam` process and exposure is a persisted
+      hardware V4L2 register) — confirms the "AGC interaction" unknown is a real, already-
+      encountered problem, not just a design risk. Next step: a continuous-session harness
+      (single long-lived capture, focus changed mid-stream from a concurrent process against
+      the lens subdev) instead of per-position process relaunch — not yet built, see the doc's
+      Phase 0/1 sections. PDAF context (dead end on this kernel, WIP archived in
+      `~/work/git-ubuntu/libcamera` branch `pdaf-sideband-wip`) is preserved in that doc rather
+      than here.
 - [ ] **Rebase `drivers/ipu-bridge` onto current real upstream, before further cleanup.**
       Its base commit (`7364894 from linux_7.0.0.orig.tar.gz`) came from an apt-source
       snapshot that's already confirmed stale: diffing it against
