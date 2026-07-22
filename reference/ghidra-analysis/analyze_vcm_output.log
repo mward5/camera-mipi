@@ -1,0 +1,478 @@
+/home/mward/work/ghidra/analyze_vcm.py:48: DeprecationWarning: open_program() is deprecated, use open_project() and program_context() or program_loader() instead.
+  with pyghidra.open_program(SYS_PATH, analyze=True) as flat_api:
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::staticFieldOffset has been called by org.apache.felix.framework.util.SecureAction (file:/home/mward/work/ghidra/ghidra_12.1.2_PUBLIC/Ghidra/Features/Base/lib/org.apache.felix.framework-7.0.5.jar)
+WARNING: Please consider reporting this to the maintainers of class org.apache.felix.framework.util.SecureAction
+WARNING: sun.misc.Unsafe::staticFieldOffset will be removed in a future release
+====================================================================================================
+Program: s5k3j1sx04.sys  base: 140000000
+====================================================================================================
+
+########## STRING: 'CheckVcmTable Order Error' ##########
+  string at 14001d550
+    ref from 140013895 -- inside function FUN_140013858 @ 140013858
+    --- decompiling FUN_140013858 @ 140013858 ---
+
+void FUN_140013858(longlong param_1)
+
+{
+  uint uVar1;
+  char *pcVar2;
+  longlong lVar3;
+  uint uVar4;
+  uint *puVar5;
+  
+  puVar5 = &DAT_14002a010;
+  uVar4 = 0;
+  do {
+    if (uVar4 == *puVar5) {
+      uVar1 = *(uint *)(param_1 + 0x30);
+    }
+    else {
+      pcVar2 = FUN_140009b3c();
+      FUN_140006744(2,
+                    "[ERROR] %s CheckVcmTable Order Error, disable VCM to keep safe!!!!!!, vcmtype=%d, Vcm[vcmtype].Type=%d"
+                    ,pcVar2,(ulonglong)uVar4);
+      *(undefined4 *)(param_1 + 0x30) = 0;
+      uVar1 = 0;
+    }
+    uVar4 = uVar4 + 1;
+    puVar5 = puVar5 + 0x14;
+  } while ((int)uVar4 < 0x14);
+  if (uVar1 < 0x14) {
+    lVar3 = (longlong)(int)uVar1;
+    *(undefined2 *)(param_1 + 0x20) = (&DAT_14002a020)[lVar3 * 0x28];
+    *(undefined8 *)(param_1 + 0x40) = (&DAT_14002a038)[lVar3 * 10];
+    *(undefined8 *)(param_1 + 0x48) = (&DAT_14002a040)[lVar3 * 10];
+    *(undefined8 *)(param_1 + 0x50) = (&DAT_14002a048)[lVar3 * 10];
+    *(undefined8 *)(param_1 + 0x58) = (&DAT_14002a050)[lVar3 * 10];
+    *(undefined8 *)(param_1 + 0x60) = (&DAT_14002a058)[lVar3 * 10];
+  }
+  return;
+}
+
+
+    --- end FUN_140013858 ---
+
+
+########## STRING: 'DW9808_Init' ##########
+  string at 14001e920
+    ref from 1400132f7 -- inside function FUN_1400132e0 @ 1400132e0
+    --- decompiling FUN_1400132e0 @ 1400132e0 ---
+
+ulonglong FUN_1400132e0(longlong param_1)
+
+{
+  ulonglong uVar1;
+  ulonglong uVar2;
+  uint uVar3;
+  byte *pbVar4;
+  
+  FUN_140014d9c(param_1);
+  if (param_1 == 0) {
+    uVar2 = 0xc000000d;
+  }
+  else {
+    uVar3 = 0;
+    pbVar4 = &DAT_14002ba58;
+    do {
+      uVar1 = FUN_140015430(param_1,*pbVar4,pbVar4[4]);
+      uVar2 = uVar1 & 0xffffffff;
+      if ((int)uVar1 < 0) goto LAB_140013357;
+      uVar3 = uVar3 + 1;
+      pbVar4 = pbVar4 + 8;
+    } while (uVar3 < 6);
+    *(undefined2 *)(param_1 + 0x34) = 200;
+    *(undefined2 *)(param_1 + 0x20) = 0x96;
+    FUN_1400137b8(param_1);
+  }
+LAB_140013357:
+  FUN_140014d9c(param_1);
+  return uVar2;
+}
+
+
+    --- end FUN_1400132e0 ---
+
+  string at 14001e930
+    ref from 14001335a -- inside function FUN_1400132e0 @ 1400132e0
+
+########## STRING: 'DW9808_SetPos' ##########
+  string at 14001e800
+    ref from 1400136b9 -- inside function FUN_140013660 @ 140013660
+    --- decompiling FUN_140013660 @ 140013660 ---
+
+/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+int FUN_140013660(longlong param_1,ushort param_2)
+
+{
+  short sVar1;
+  int iVar2;
+  char cVar3;
+  ushort uVar4;
+  undefined1 auStack_58 [32];
+  undefined8 local_38;
+  byte local_28 [8];
+  ulonglong local_20;
+  
+  local_20 = DAT_14002b8f0 ^ (ulonglong)auStack_58;
+  cVar3 = '\0';
+  local_28[0] = 0;
+  if (param_1 == 0) {
+    iVar2 = -0x3ffffff3;
+  }
+  else {
+    local_38 = 0;
+    iVar2 = KeWaitForSingleObject(*(undefined8 *)(param_1 + 0x10),0,0,0);
+    if (iVar2 == 0) {
+      uVar4 = 0x3ff;
+      if ((short)param_2 < 0x400) {
+        uVar4 = param_2;
+      }
+      if ((short)uVar4 < 10) {
+        uVar4 = 10;
+      }
+      do {
+        FUN_1400152d4(param_1,5,(uint *)local_28);
+        local_28[0] = local_28[0] & 1;
+        if (local_28[0] == 0) goto LAB_140013744;
+        FUN_14000dc50(1);
+        FUN_140014d9c(param_1);
+        cVar3 = cVar3 + '\x01';
+      } while (cVar3 != '\x14');
+      FUN_140014d9c(param_1);
+LAB_140013744:
+      iVar2 = FUN_140015660(param_1,3,uVar4);
+      if (-1 < iVar2) {
+        sVar1 = *(short *)(param_1 + 0x20);
+        *(ushort *)(param_1 + 0x20) = param_2;
+        *(uint *)(param_1 + 0x24) = (uint)param_2 - (int)sVar1;
+        *(undefined8 *)(param_1 + 0x28) = _DAT_fffff78000000014;
+      }
+      KeSetEvent(*(undefined8 *)(param_1 + 0x10),0,0);
+    }
+    else {
+      FUN_140014d9c(param_1);
+    }
+  }
+  FUN_140014d9c(param_1);
+  return iVar2;
+}
+
+
+    --- end FUN_140013660 ---
+
+  string at 14001e860
+    ref from 140013787 -- inside function FUN_140013660 @ 140013660
+
+########## STRING: 'DW9808_GetPos' ##########
+  string at 14001e870
+    ref from 140013195 -- inside function FUN_140013140 @ 140013140
+    --- decompiling FUN_140013140 @ 140013140 ---
+
+/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */
+
+int FUN_140013140(longlong param_1,undefined2 *param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  undefined1 auStack_58 [32];
+  undefined8 local_38;
+  undefined2 local_28 [4];
+  ulonglong local_20;
+  
+  local_20 = DAT_14002b8f0 ^ (ulonglong)auStack_58;
+  iVar2 = -0x3ffffff3;
+  if (param_1 == 0) {
+    iVar1 = -0x3ffffff3;
+    if (param_2 == (undefined2 *)0x0) goto LAB_1400131d9;
+  }
+  else {
+    if (param_2 == (undefined2 *)0x0) goto LAB_1400131d9;
+    local_38 = 0;
+    iVar1 = KeWaitForSingleObject(*(undefined8 *)(param_1 + 0x10),0,0,0);
+    if (iVar1 == 0) {
+      iVar1 = FUN_140015400(param_1,3,(uint *)local_28);
+      if (-1 < iVar1) {
+        *param_2 = local_28[0];
+      }
+      KeSetEvent(*(undefined8 *)(param_1 + 0x10),0,0);
+    }
+    else {
+      FUN_140014d9c(param_1);
+    }
+  }
+  iVar2 = iVar1;
+LAB_1400131d9:
+  FUN_140014d9c(param_1);
+  return iVar2;
+}
+
+
+    --- end FUN_140013140 ---
+
+  string at 14001e8a0
+    ref from 1400131dc -- inside function FUN_140013140 @ 140013140
+
+########## STRING: 'DW9808_ResetPos' ##########
+  string at 14001e980
+    ref from 14001348b -- inside function FUN_140013460 @ 140013460
+    --- decompiling FUN_140013460 @ 140013460 ---
+
+int FUN_140013460(longlong param_1)
+
+{
+  int iVar1;
+  ushort uVar2;
+  
+  if (param_1 == 0) {
+    iVar1 = -0x3ffffff3;
+  }
+  else {
+    FUN_140014d9c(param_1);
+    iVar1 = FUN_140013384(param_1);
+    if (iVar1 < 0) {
+      FUN_140014d9c(param_1);
+    }
+    uVar2 = *(ushort *)(param_1 + 0x20);
+    while ((0x14 < (short)uVar2 && (uVar2 < 0x400))) {
+      uVar2 = (-(ushort)(300 < uVar2) & 0xffe2) + (uVar2 - 0x14);
+      iVar1 = FUN_140013660(param_1,uVar2);
+      if (iVar1 < 0) goto LAB_140013522;
+      FUN_14000dc50(5);
+    }
+    *(undefined2 *)(param_1 + 0x20) = 0;
+    iVar1 = FUN_140013660(param_1,0);
+    FUN_14000dc50(5);
+  }
+LAB_140013522:
+  FUN_140014d9c(param_1);
+  return iVar1;
+}
+
+
+    --- end FUN_140013460 ---
+
+  string at 14001e9c0
+    ref from 140013525 -- inside function FUN_140013460 @ 140013460
+
+########## STRING: 'DW9808_SetConfig' ##########
+  string at 14001ea30
+    ref from 140013573 -- inside function FUN_140013550 @ 140013550
+    --- decompiling FUN_140013550 @ 140013550 ---
+
+undefined4 FUN_140013550(longlong param_1,int *param_2)
+
+{
+  undefined4 *puVar1;
+  undefined4 uVar2;
+  longlong lVar3;
+  uint uVar4;
+  int *piVar5;
+  
+  uVar2 = 0;
+  FUN_140014d9c(param_1);
+  if ((param_1 == 0) || (param_2 == (int *)0x0)) {
+    uVar2 = 0xc000000d;
+  }
+  else if (*param_2 == 6) {
+    piVar5 = param_2 + 1;
+    uVar4 = 0;
+    lVar3 = (longlong)&DAT_14002ba58 - (longlong)piVar5;
+    do {
+      FUN_140014d9c(param_1);
+      if (*piVar5 != *(int *)(lVar3 + (longlong)piVar5)) goto LAB_14001361e;
+      uVar4 = uVar4 + 1;
+      piVar5 = piVar5 + 2;
+    } while (uVar4 < 5);
+    puVar1 = (undefined4 *)&DAT_14002ba5c;
+    uVar4 = 0;
+    do {
+      uVar4 = uVar4 + 1;
+      *puVar1 = *(undefined4 *)((longlong)puVar1 + (longlong)(param_2 + -0x5000ae95));
+      puVar1 = puVar1 + 2;
+    } while (uVar4 < 6);
+  }
+  else {
+LAB_14001361e:
+    FUN_140014d9c(param_1);
+    uVar2 = 0;
+  }
+  FUN_140014d9c(param_1);
+  return uVar2;
+}
+
+
+    --- end FUN_140013550 ---
+
+  string at 14001ea50
+    ref from 140013629 -- inside function FUN_140013550 @ 140013550
+
+########## STRING: 'DW9808_WarmStart' ##########
+  string at 14001e940
+    ref from 1400137e0 -- inside function FUN_1400137b8 @ 1400137b8
+    --- decompiling FUN_1400137b8 @ 1400137b8 ---
+
+int FUN_1400137b8(longlong param_1)
+
+{
+  int iVar1;
+  ushort uVar2;
+  
+  iVar1 = 0;
+  if (param_1 == 0) {
+    iVar1 = -0x3ffffff3;
+  }
+  else {
+    FUN_140014d9c(param_1);
+    for (uVar2 = *(ushort *)(param_1 + 0x20);
+        (10 < (short)uVar2 && ((uint)uVar2 <= *(ushort *)(param_1 + 0x34) + 0x32));
+        uVar2 = uVar2 + 0x20) {
+      iVar1 = FUN_140013660(param_1,uVar2);
+      if (iVar1 < 0) break;
+      FUN_14000dc50(10);
+    }
+  }
+  FUN_140014d9c(param_1);
+  return iVar1;
+}
+
+
+    --- end FUN_1400137b8 ---
+
+  string at 14001e960
+    ref from 14001382c -- inside function FUN_1400137b8 @ 1400137b8
+
+########## STRING: 'DW9808_NRC' ##########
+  string at 14001e9a0
+    ref from 1400134ac -- inside function FUN_140013460 @ 140013460
+  string at 14001e9e0
+    ref from 1400133a3 -- inside function FUN_140013384 @ 140013384
+    --- decompiling FUN_140013384 @ 140013384 ---
+
+int FUN_140013384(longlong param_1)
+
+{
+  int iVar1;
+  
+  if (param_1 == 0) {
+    iVar1 = -0x3ffffff3;
+  }
+  else {
+    FUN_140014d9c(param_1);
+    iVar1 = KeWaitForSingleObject(*(undefined8 *)(param_1 + 0x10),0,0,0,0);
+    if (iVar1 != 0) {
+      FUN_140014d9c(param_1);
+      goto LAB_140013437;
+    }
+    iVar1 = FUN_140015660(param_1,10,0x7d);
+    if (-1 < iVar1) {
+      iVar1 = FUN_140015660(param_1,0xc,0xa5);
+      if (-1 < iVar1) {
+        iVar1 = FUN_140015660(param_1,0xb,1);
+      }
+    }
+  }
+  KeSetEvent(*(undefined8 *)(param_1 + 0x10),0,0);
+LAB_140013437:
+  FUN_140014d9c(param_1);
+  return iVar1;
+}
+
+
+    --- end FUN_140013384 ---
+
+  string at 14001e9f0
+    ref from 1400133d6 -- inside function FUN_140013384 @ 140013384
+  string at 14001ea20
+    ref from 14001343a -- inside function FUN_140013384 @ 140013384
+
+########## STRING: 'DW9808_GetStatus' ##########
+  string at 14001e8b0
+    ref from 14001325b -- inside function FUN_140013210 @ 140013210
+    --- decompiling FUN_140013210 @ 140013210 ---
+
+/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */
+
+int FUN_140013210(longlong param_1,uint *param_2)
+
+{
+  int iVar1;
+  undefined1 auStack_58 [32];
+  undefined8 local_38;
+  byte local_28 [8];
+  ulonglong local_20;
+  
+  local_20 = DAT_14002b8f0 ^ (ulonglong)auStack_58;
+  local_28[0] = 0;
+  local_38 = 0;
+  iVar1 = KeWaitForSingleObject(*(undefined8 *)(param_1 + 0x10),0,0,0);
+  if (iVar1 == 0) {
+    iVar1 = FUN_1400152d4(param_1,5,(uint *)local_28);
+    if (-1 < iVar1) {
+      *param_2 = local_28[0] & 1;
+    }
+    KeSetEvent(*(undefined8 *)(param_1 + 0x10),0,0);
+  }
+  else {
+    FUN_140014d9c(param_1);
+  }
+  FUN_140014d9c(param_1);
+  return iVar1;
+}
+
+
+    --- end FUN_140013210 ---
+
+  string at 14001e8e0
+    ref from 1400132a3 -- inside function FUN_140013210 @ 140013210
+
+########## STRING: 'DW9808_GetHPStatus' ##########
+  string at 14001e900
+    ref from 140013128 -- inside function FUN_1400130a0 @ 1400130a0
+    --- decompiling FUN_1400130a0 @ 1400130a0 ---
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 FUN_1400130a0(longlong param_1,uint *param_2)
+
+{
+  int iVar1;
+  undefined8 uVar2;
+  uint uVar3;
+  
+  uVar2 = 0;
+  if (param_1 == 0) {
+    uVar2 = 0xc000000d;
+    if (param_2 != (uint *)0x0) goto LAB_140013125;
+  }
+  else if (param_2 != (uint *)0x0) {
+    iVar1 = *(int *)(param_1 + 0x24);
+    uVar3 = iVar1 * 10000;
+    if ((((int)uVar3 >> 0x1f & 0xffffb1e0U) + 10000) * iVar1 < 400000) {
+      if ((int)uVar3 < 0) {
+        uVar3 = iVar1 * -10000;
+      }
+    }
+    else {
+      uVar3 = 400000;
+    }
+    *param_2 = (uint)((longlong)(ulonglong)uVar3 <
+                     _DAT_fffff78000000014 - *(longlong *)(param_1 + 0x28));
+    goto LAB_140013125;
+  }
+  uVar2 = 0xc000000d;
+LAB_140013125:
+  FUN_140014d9c(param_1);
+  return uVar2;
+}
+
+
+    --- end FUN_1400130a0 ---
+
+
+
+Done.

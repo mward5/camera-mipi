@@ -1,0 +1,210 @@
+====================================================================================================
+0x140014c80: function FUN_140014c80
+  Direct string refs inside this function:
+    @ 140014cc5: '000313ae'
+    @ 140014cd7: 'LC898217_SetPos KeWaitForSingleObject fail'
+    @ 140014cf6: 'LC898217_SetPos focus_set'
+    @ 140014d34: '000313a0'
+    @ 140014d3e: 'LC898217_SetPos'
+  --- decompiled ---
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+int FUN_140014c80(longlong param_1,ushort param_2)
+
+{
+  short sVar1;
+  ushort uVar2;
+  int iVar3;
+  
+  if (param_1 == 0) {
+    iVar3 = -0x3ffffff3;
+  }
+  else {
+    uVar2 = 0x3ff;
+    if (param_2 < 0x400) {
+      uVar2 = param_2;
+    }
+    iVar3 = KeWaitForSingleObject(*(undefined8 *)(param_1 + 0x10),0,0,0,0);
+    if (iVar3 == 0) {
+      iVar3 = FUN_140015660(param_1,0x84,uVar2);
+      FUN_140014d9c(param_1);
+      if (-1 < iVar3) {
+        sVar1 = *(short *)(param_1 + 0x20);
+        *(ushort *)(param_1 + 0x20) = uVar2;
+        *(uint *)(param_1 + 0x24) = (uint)uVar2 - (int)sVar1;
+        *(undefined8 *)(param_1 + 0x28) = _DAT_fffff78000000014;
+      }
+      KeSetEvent(*(undefined8 *)(param_1 + 0x10),0,0);
+    }
+    else {
+      FUN_140014d9c(param_1);
+    }
+  }
+  FUN_140014d9c(param_1);
+  return iVar3;
+}
+
+
+====================================================================================================
+0x140014800: function FUN_140014800
+  Direct string refs inside this function:
+    @ 14001480c: '0x2b992ddfa232'
+    @ 140014843: '000313ae'
+    @ 140014855: 'LC898217_GetPos KeWaitForSingleObject fail'
+    @ 14001488d: '000313a0'
+    @ 1400148a0: 'LC898217_GetPos'
+  --- decompiled ---
+
+/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */
+
+int FUN_140014800(longlong param_1,ushort *param_2)
+
+{
+  int iVar1;
+  int iVar2;
+  undefined1 auStack_58 [32];
+  undefined8 local_38;
+  ushort local_28 [4];
+  ulonglong local_20;
+  
+  local_20 = DAT_14002b8f0 ^ (ulonglong)auStack_58;
+  iVar2 = -0x3ffffff3;
+  if (param_1 == 0) {
+    iVar1 = -0x3ffffff3;
+    if (param_2 == (ushort *)0x0) goto LAB_14001489d;
+  }
+  else {
+    if (param_2 == (ushort *)0x0) goto LAB_14001489d;
+    local_38 = 0;
+    iVar1 = KeWaitForSingleObject(*(undefined8 *)(param_1 + 0x10),0,0,0);
+    if (iVar1 == 0) {
+      iVar1 = FUN_140015400(param_1,10,(uint *)local_28);
+      if (-1 < iVar1) {
+        *param_2 = local_28[0] >> 4;
+      }
+      KeSetEvent(*(undefined8 *)(param_1 + 0x10),0,0);
+    }
+    else {
+      FUN_140014d9c(param_1);
+    }
+  }
+  iVar2 = iVar1;
+LAB_14001489d:
+  FUN_140014d9c(param_1);
+  return iVar2;
+}
+
+
+====================================================================================================
+0x1400148d0: function FUN_1400148d0
+  Direct string refs inside this function:
+    @ 1400148dd: '0x2b992ddfa232'
+    @ 140014914: '000313ae'
+    @ 140014926: 'DW9806B_GetStatus KeWaitForSingleObject fail'
+    @ 140014986: '000313a0'
+    @ 140014997: 'LC898217_GetStatus'
+  --- decompiled ---
+
+/* WARNING: Function: __security_check_cookie replaced with injection: security_check_cookie */
+
+int FUN_1400148d0(longlong param_1,uint *param_2)
+
+{
+  int iVar1;
+  undefined1 auStack_58 [32];
+  undefined8 local_38;
+  short local_28 [2];
+  short local_24 [2];
+  ulonglong local_20;
+  
+  local_20 = DAT_14002b8f0 ^ (ulonglong)auStack_58;
+  if (param_1 == 0) {
+    iVar1 = -0x3ffffff3;
+  }
+  else {
+    local_38 = 0;
+    iVar1 = KeWaitForSingleObject(*(undefined8 *)(param_1 + 0x10),0,0,0);
+    if (iVar1 == 0) {
+      iVar1 = FUN_140015400(param_1,10,(uint *)local_24);
+      if (-1 < iVar1) {
+        FUN_14000dc50(2);
+        iVar1 = FUN_140015400(param_1,10,(uint *)local_28);
+        if (-1 < iVar1) {
+          *param_2 = (uint)(local_24[0] != local_28[0]);
+        }
+      }
+      KeSetEvent(*(undefined8 *)(param_1 + 0x10),0,0);
+    }
+    else {
+      FUN_140014d9c(param_1);
+    }
+  }
+  FUN_140014d9c(param_1);
+  return iVar1;
+}
+
+
+====================================================================================================
+0x140010900: function FUN_140010900
+  (no direct string refs found in this function's body)
+  --- decompiled ---
+
+/* WARNING: Globals starting with '_' overlap smaller symbols at the same address */
+
+undefined8 FUN_140010900(longlong param_1,uint *param_2)
+
+{
+  int iVar1;
+  uint uVar2;
+  undefined8 uVar4;
+  ulonglong uVar3;
+  
+  uVar4 = 0;
+  if ((param_1 == 0) || (param_2 == (uint *)0x0)) {
+    uVar4 = 0xc000000d;
+  }
+  else {
+    iVar1 = *(int *)(param_1 + 0x24);
+    uVar2 = iVar1 * 10000;
+    uVar3 = (ulonglong)uVar2;
+    if ((((int)uVar2 >> 0x1f & 0xffffb1e0U) + 10000) * iVar1 < 400000) {
+      if ((int)uVar2 < 0) {
+        uVar3 = (ulonglong)(uint)(iVar1 * -10000);
+      }
+    }
+    else {
+      uVar3 = 400000;
+    }
+    *param_2 = (uint)((longlong)uVar3 < _DAT_fffff78000000014 - *(longlong *)(param_1 + 0x28));
+  }
+  return uVar4;
+}
+
+
+====================================================================================================
+0x140014c20: function FUN_140014c20
+  Direct string refs inside this function:
+    @ 140014c43: 'LC898217_SetConfig +'
+    @ 140014c55: 'LC898217_SetConfig -'
+  --- decompiled ---
+
+undefined8 FUN_140014c20(longlong param_1,longlong param_2)
+
+{
+  undefined8 uVar1;
+  
+  uVar1 = 0;
+  if ((param_1 == 0) || (param_2 == 0)) {
+    uVar1 = 0xc000000d;
+  }
+  else {
+    FUN_140014d9c(param_1);
+  }
+  FUN_140014d9c(param_1);
+  return uVar1;
+}
+
+
+
+Done.

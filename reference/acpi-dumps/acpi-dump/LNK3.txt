@@ -1,0 +1,477 @@
+        Device (LNK3)
+        {
+            Method (_STA, 0, NotSerialized)  // _STA: Status
+            {
+                If (L3EN)
+                {
+                    Return (0x0F)
+                }
+                Else
+                {
+                    Return (Zero)
+                }
+            }
+
+            Method (_DEP, 0, NotSerialized)  // _DEP: Dependencies
+            {
+                If (L3EN)
+                {
+                    Return (CDEP (L3CL, L3BS))
+                }
+                Else
+                {
+                    Return (Package (0x01)
+                    {
+                        PC00
+                    })
+                }
+            }
+
+            Name (_UID, 0x03)  // _UID: Unique ID
+            Method (_HID, 0, NotSerialized)  // _HID: Hardware ID
+            {
+                Return (HCID (0x03))
+            }
+
+            Method (_DDN, 0, NotSerialized)  // _DDN: DOS Device Name
+            {
+                Name (BUF, Buffer (0x10){})
+                BUF [Zero] = L3M0 /* \L3M0 */
+                BUF [One] = L3M1 /* \L3M1 */
+                BUF [0x02] = L3M2 /* \L3M2 */
+                BUF [0x03] = L3M3 /* \L3M3 */
+                BUF [0x04] = L3M4 /* \L3M4 */
+                BUF [0x05] = L3M5 /* \L3M5 */
+                BUF [0x06] = L3M6 /* \L3M6 */
+                BUF [0x07] = L3M7 /* \L3M7 */
+                BUF [0x08] = L3M8 /* \L3M8 */
+                BUF [0x09] = L3M9 /* \L3M9 */
+                BUF [0x0A] = L3MA /* \L3MA */
+                BUF [0x0B] = L3MB /* \L3MB */
+                BUF [0x0C] = L3MC /* \L3MC */
+                BUF [0x0D] = L3MD /* \L3MD */
+                BUF [0x0E] = L3ME /* \L3ME */
+                BUF [0x0F] = L3MF /* \L3MF */
+                Return (ToString (BUF, Ones))
+            }
+
+            Method (_PLD, 0, Serialized)  // _PLD: Physical Location of Device
+            {
+                Name (PLDB, Package (0x01)
+                {
+                    Buffer (0x14)
+                    {
+                        /* 0000 */  0x82, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ........
+                        /* 0008 */  0x69, 0x0E, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00,  // i.......
+                        /* 0010 */  0xFF, 0xFF, 0xFF, 0xFF                           // ....
+                    }
+                })
+                CreateByteField (DerefOf (PLDB [Zero]), 0x08, BPOS)
+                CreateField (DerefOf (PLDB [Zero]), 0x73, 0x04, RPOS)
+                BPOS = L3PL /* \L3PL */
+                RPOS = L3DG /* \L3DG */
+                Return (PLDB) /* \_SB_.PC00.LNK3._PLD.PLDB */
+            }
+
+            Method (_CRS, 0, NotSerialized)  // _CRS: Current Resource Settings
+            {
+                If ((L3DI == Zero))
+                {
+                    Return (Buffer (Zero){})
+                }
+                Else
+                {
+                    If ((L3DI > Zero))
+                    {
+                        Local0 = IICB (L3A0, L3BS)
+                    }
+
+                    If ((L3DI > One))
+                    {
+                        Local1 = IICB (L3A1, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    If ((L3DI > 0x02))
+                    {
+                        Local1 = IICB (L3A2, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    If ((L3DI > 0x03))
+                    {
+                        Local1 = IICB (L3A3, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    If ((L3DI > 0x04))
+                    {
+                        Local1 = IICB (L3A4, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    If ((L3DI > 0x05))
+                    {
+                        Local1 = IICB (L3A5, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    If ((L3DI > 0x06))
+                    {
+                        Local1 = IICB (L3A6, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    If ((L3DI > 0x07))
+                    {
+                        Local1 = IICB (L3A7, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    If ((L3DI > 0x08))
+                    {
+                        Local1 = IICB (L3A8, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    If ((L3DI > 0x09))
+                    {
+                        Local1 = IICB (L3A9, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    If ((L3DI > 0x0A))
+                    {
+                        Local1 = IICB (L3AA, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    If ((L3DI > 0x0B))
+                    {
+                        Local1 = IICB (L3AB, L3BS)
+                        ConcatenateResTemplate (Local0, Local1, Local2)
+                        Local0 = Local2
+                    }
+
+                    Return (Local0)
+                }
+            }
+
+            Method (SSDB, 0, NotSerialized)
+            {
+                Name (PAR, Buffer (0x6C)
+                {
+                    /* 0000 */  0x00, 0x00, 0x69, 0x56, 0x39, 0x8A, 0xF7, 0x11,  // ..iV9...
+                    /* 0008 */  0xA9, 0x4E, 0x9C, 0x7D, 0x20, 0xEE, 0x0A, 0xB5,  // .N.} ...
+                    /* 0010 */  0xCA, 0x40, 0xA3, 0x00, 0x00, 0x00, 0x00, 0x00,  // .@......
+                    /* 0018 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ........
+                    /* 0020 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ........
+                    /* 0028 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ........
+                    /* 0030 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ........
+                    /* 0038 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ........
+                    /* 0040 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ........
+                    /* 0048 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ........
+                    /* 0050 */  0x0F, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00,  // ........
+                    /* 0058 */  0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // ........
+                    /* 0060 */  0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x00,  // ........
+                    /* 0068 */  0x00, 0x00, 0x00, 0x00                           // ....
+                })
+                PAR [Zero] = L3DV /* \L3DV */
+                PAR [One] = L3CV /* \L3CV */
+                PAR [0x18] = L3LC /* \L3LC */
+                PAR [0x1C] = L3LU /* \L3LU */
+                PAR [0x1D] = L3NL /* \L3NL */
+                PAR [0x4E] = L3EE /* \L3EE */
+                PAR [0x4F] = L3VC /* \L3VC */
+                PAR [0x52] = L3FS /* \L3FS */
+                PAR [0x53] = L3LE /* \L3LE */
+                PAR [0x54] = CDEG (L3DG)
+                CreateDWordField (PAR, 0x56, DAT)
+                DAT = L3CK /* \L3CK */
+                PAR [0x5A] = L3CL /* \L3CL */
+                PAR [0x5F] = L3PP /* \L3PP */
+                PAR [0x60] = L3VR /* \L3VR */
+                PAR [0x63] = L3FI /* \L3FI */
+                Return (PAR) /* \_SB_.PC00.LNK3.SSDB.PAR_ */
+            }
+
+            Method (_DSM, 4, NotSerialized)  // _DSM: Device-Specific Method
+            {
+                If ((Arg0 == ToUUID ("822ace8f-2814-4174-a56b-5f029fe079ee") /* Unknown UUID */))
+                {
+                    If ((Arg2 == Zero))
+                    {
+                        If ((Arg1 == Zero))
+                        {
+                            Return (Buffer (One)
+                            {
+                                 0x03                                             // .
+                            })
+                        }
+                        Else
+                        {
+                            Return (Buffer (One)
+                            {
+                                 0x01                                             // .
+                            })
+                        }
+                    }
+
+                    If ((Arg2 == One))
+                    {
+                        Name (BUF, Buffer (0x10){})
+                        BUF [Zero] = L3M0 /* \L3M0 */
+                        BUF [One] = L3M1 /* \L3M1 */
+                        BUF [0x02] = L3M2 /* \L3M2 */
+                        BUF [0x03] = L3M3 /* \L3M3 */
+                        BUF [0x04] = L3M4 /* \L3M4 */
+                        BUF [0x05] = L3M5 /* \L3M5 */
+                        BUF [0x06] = L3M6 /* \L3M6 */
+                        BUF [0x07] = L3M7 /* \L3M7 */
+                        BUF [0x08] = L3M8 /* \L3M8 */
+                        BUF [0x09] = L3M9 /* \L3M9 */
+                        BUF [0x0A] = L3MA /* \L3MA */
+                        BUF [0x0B] = L3MB /* \L3MB */
+                        BUF [0x0C] = L3MC /* \L3MC */
+                        BUF [0x0D] = L3MD /* \L3MD */
+                        BUF [0x0E] = L3ME /* \L3ME */
+                        BUF [0x0F] = L3MF /* \L3MF */
+                        Return (ToString (BUF, Ones))
+                    }
+                }
+
+                If ((Arg0 == ToUUID ("5815c5c8-c47d-477b-9a8d-76173176414b") /* Unknown UUID */))
+                {
+                    If ((Arg2 == Zero))
+                    {
+                        If ((Arg1 == Zero))
+                        {
+                            Return (Buffer (One)
+                            {
+                                 0x03                                             // .
+                            })
+                        }
+                        Else
+                        {
+                            Return (Buffer (One)
+                            {
+                                 0x01                                             // .
+                            })
+                        }
+                    }
+
+                    If ((Arg2 == One))
+                    {
+                        Name (DSMB, Buffer (0x34){})
+                        CreateDWordField (DSMB, Zero, I2CC)
+                        CreateDWordField (DSMB, 0x04, DEV0)
+                        CreateDWordField (DSMB, 0x08, DEV1)
+                        CreateDWordField (DSMB, 0x0C, DEV2)
+                        CreateDWordField (DSMB, 0x10, DEV3)
+                        CreateDWordField (DSMB, 0x14, DEV4)
+                        CreateDWordField (DSMB, 0x18, DEV5)
+                        CreateDWordField (DSMB, 0x1C, DEV6)
+                        CreateDWordField (DSMB, 0x20, DEV7)
+                        CreateDWordField (DSMB, 0x24, DEV8)
+                        CreateDWordField (DSMB, 0x28, DEV9)
+                        CreateDWordField (DSMB, 0x2C, DEVA)
+                        CreateDWordField (DSMB, 0x30, DEVB)
+                        I2CC = L3DI /* \L3DI */
+                        DEV0 = DSMI (L3D0, L3A0, Zero, L3BS)
+                        DEV1 = DSMI (L3D1, L3A1, Zero, L3BS)
+                        DEV2 = DSMI (L3D2, L3A2, Zero, L3BS)
+                        DEV3 = DSMI (L3D3, L3A3, Zero, L3BS)
+                        DEV4 = DSMI (L3D4, L3A4, Zero, L3BS)
+                        DEV5 = DSMI (L3D5, L3A5, Zero, L3BS)
+                        DEV6 = DSMI (L3D6, L3A6, Zero, L3BS)
+                        DEV7 = DSMI (L3D7, L3A7, Zero, L3BS)
+                        DEV8 = DSMI (L3D8, L3A8, Zero, L3BS)
+                        DEV9 = DSMI (L3D9, L3A9, Zero, L3BS)
+                        DEVA = DSMI (L3DA, L3AA, Zero, L3BS)
+                        DEVB = DSMI (L3DB, L3AB, Zero, L3BS)
+                        Return (DSMB) /* \_SB_.PC00.LNK3._DSM.DSMB */
+                    }
+
+                    Return (Buffer (One)
+                    {
+                         0x00                                             // .
+                    })
+                }
+
+                If ((Arg0 == ToUUID ("26257549-9271-4ca4-bb43-c4899d5a4881") /* Unknown UUID */))
+                {
+                    If ((Arg2 == Zero))
+                    {
+                        Return (Buffer (0x02)
+                        {
+                             0xFF, 0x1F                                       // ..
+                        })
+                    }
+
+                    If ((Arg2 == One))
+                    {
+                        Return (L3DI) /* \L3DI */
+                    }
+
+                    If ((Arg2 == 0x02))
+                    {
+                        If ((L3DI > Zero))
+                        {
+                            Return (DSMI (L3D0, L3A0, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x03))
+                    {
+                        If ((L3DI > One))
+                        {
+                            Return (DSMI (L3D1, L3A1, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x04))
+                    {
+                        If ((L3DI > 0x02))
+                        {
+                            Return (DSMI (L3D2, L3A2, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x05))
+                    {
+                        If ((L3DI > 0x03))
+                        {
+                            Return (DSMI (L3D3, L3A3, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x06))
+                    {
+                        If ((L3DI > 0x04))
+                        {
+                            Return (DSMI (L3D4, L3A4, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x07))
+                    {
+                        If ((L3DI > 0x05))
+                        {
+                            Return (DSMI (L3D5, L3A5, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x08))
+                    {
+                        If ((L3DI > 0x06))
+                        {
+                            Return (DSMI (L3D6, L3A6, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x08))
+                    {
+                        If ((L3DI > 0x07))
+                        {
+                            Return (DSMI (L3D7, L3A7, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x09))
+                    {
+                        If ((L3DI > 0x08))
+                        {
+                            Return (DSMI (L3D8, L3A8, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x0A))
+                    {
+                        If ((L3DI > 0x09))
+                        {
+                            Return (DSMI (L3D9, L3A9, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x0B))
+                    {
+                        If ((L3DI > 0x0A))
+                        {
+                            Return (DSMI (L3DA, L3AA, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+
+                    If ((Arg2 == 0x0C))
+                    {
+                        If ((L3DI > 0x0B))
+                        {
+                            Return (DSMI (L3DB, L3AB, Zero, L3BS))
+                        }
+                        Else
+                        {
+                            Return (Zero)
+                        }
+                    }
+                }
+
+                Return (Buffer (One)
+                {
+                     0x00                                             // .
+                })
+            }
+        }
+

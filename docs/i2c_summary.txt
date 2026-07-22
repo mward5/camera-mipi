@@ -1,0 +1,71 @@
+Files Processed:
+	i2c_capture.etl
+Total Buffers Processed 219
+Total Events  Processed 18049
+Total Events  Lost      0
+Start Time              Friday, July 17, 2026
+End Time                Friday, July 17, 2026
+Elapsed Time            34 sec
++-------------------------------------------------------------------------------------------------------------------------+
+|Event Count   Event Name           Task            Opcode          Version         Guid                                  |
++-------------------------------------------------------------------------------------------------------------------------+
+|          1   EventTrace           0               PartitionInfoExtension 2               {68fdd900-4a3e-11d1-84f4-0000f80464e3}|
+|          1   EventTrace           0               Header          2               {68fdd900-4a3e-11d1-84f4-0000f80464e3}|
+|          4   Intel-iaLPSS2-I2C    3               Stop            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|          4   Intel-iaLPSS2-I2C    3               Start           0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|       7936   Intel-iaLPSS2-I2C    6               Info            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        726   Intel-iaLPSS2-I2C    4               Info            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               Stop            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoComplete      1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoSpbDirection  1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoSpbPayloadStop 1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoSpbPayloadTdStop 1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoSpbPayloadTdBuffer 1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoSpbPayloadTdStart 1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoSpbPayloadStart 1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoPresentToDriver 1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoDispatchToController 1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoForwardToControllerQueue 1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               IoDispatchToTarget 1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|          4   Microsoft-Windows-SPB-ClassExtension  4               DIrpPreprocess  1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  3               Start           1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
++-------------------------------------------------------------------------------------------------------------------------+
++---------------------------------------------------------------------------------------------------------+
+|Event Count   Event Name           Event ID        Version         Guid                                  |
++---------------------------------------------------------------------------------------------------------+
+|          2   EventTrace           0               2               {68fdd900-4a3e-11d1-84f4-0000f80464e3}|
+|          2   Intel-iaLPSS2-I2C    1061            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|          2   Intel-iaLPSS2-I2C    1062            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|          2   Intel-iaLPSS2-I2C    1063            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|          2   Intel-iaLPSS2-I2C    1064            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|          4   Intel-iaLPSS2-I2C    1071            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|          1   Intel-iaLPSS2-I2C    1072            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        721   Intel-iaLPSS2-I2C    1077            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|          4   Intel-iaLPSS2-I2C    1081            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|          1   Intel-iaLPSS2-I2C    1083            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        721   Intel-iaLPSS2-I2C    1091            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        721   Intel-iaLPSS2-I2C    1100            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|       1442   Intel-iaLPSS2-I2C    1101            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        721   Intel-iaLPSS2-I2C    1102            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        721   Intel-iaLPSS2-I2C    1198            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        652   Intel-iaLPSS2-I2C    1203            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|         69   Intel-iaLPSS2-I2C    1204            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|         15   Intel-iaLPSS2-I2C    1206            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        706   Intel-iaLPSS2-I2C    1207            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        721   Intel-iaLPSS2-I2C    1220            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|       1442   Intel-iaLPSS2-I2C    1225            0               {c2f86198-03ca-4771-8d4c-ce6e15cbca56}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1010            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1011            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1012            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1013            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1014            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1015            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1016            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1018            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|          4   Microsoft-Windows-SPB-ClassExtension  1020            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1021            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1022            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1023            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1024            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
+|        721   Microsoft-Windows-SPB-ClassExtension  1025            1               {72cd9ff7-4af8-4b89-aede-5f26fda13567}|
++---------------------------------------------------------------------------------------------------------+

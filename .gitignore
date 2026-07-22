@@ -1,0 +1,11 @@
+# Each of these is its own independent git repo (real history, kept
+# separate on purpose) - not tracked as submodules here, just excluded so
+# `git add` doesn't turn them into gitlink entries.
+/drivers/
+
+# 433MB of Dell/Intel proprietary Windows driver binaries (.sys, firmware,
+# installers) - kept on disk for reverse-engineering reference, not in git.
+/reference/windows-driver-artifacts/
+
+# Local Claude Code settings, machine-specific.
+/.claude/settings.local.json

@@ -1,0 +1,18 @@
+[73314.239633] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 hub access: drv=0x1 fw=0x0
+[73314.239646] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 fe: enable=0x1 mode=0x0 mux=0x0 sync=0x3 ppi_enable=0x1 ppi_intf=0x18
+[73314.449445] s5k3j1 i2c-INT346D:00: streaming: 3976x2736 vts=3420 link_freq_idx=0
+[73314.449458] s5k3j1 i2c-INT346D:00: s_stream(1): 0
+[73314.503425] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 error: Single packet header error corrected
+[73314.503458] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 error: Multiple packet header errors detected
+[73314.503469] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 error: Incomplete long packet detected
+[73314.503478] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 error: Frame sync error
+[73314.503485] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 error: Line sync error
+[73314.503492] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 error: DPHY recoverable synchronization error
+[73314.503499] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 error: DPHY fatal error
+[73314.503505] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 error: Inter-frame short packet discarded
+[73314.503512] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 error: Inter-frame long packet discarded
+[73314.503519] intel_ipu6_isys.isys intel_ipu6.isys.40: csi2-1 error: FIFO overflow
+[73320.696409] audit: type=1107 audit(1784667557.363:2989): pid=1836 uid=995 auid=4294967295 ses=4294967295 subj=unconfined msg='apparmor="DENIED" operation="dbus_signal"  bus="system" path="/org/freedesktop/UPower/devices/battery_BAT0" interface="org.freedesktop.DBus.Properties" member="PropertiesChanged" name=":1.21" mask="receive" pid=14492 label="firefox" peer_pid=2064 peer_label="unconfined"
+                exe="/usr/bin/dbus-daemon" sauid=995 hostname=? addr=? terminal=?'
+[73350.743483] audit: type=1107 audit(1784667587.418:2990): pid=1836 uid=995 auid=4294967295 ses=4294967295 subj=unconfined msg='apparmor="DENIED" operation="dbus_signal"  bus="system" path="/org/freedesktop/UPower/devices/battery_BAT0" interface="org.freedesktop.DBus.Properties" member="PropertiesChanged" name=":1.21" mask="receive" pid=14492 label="firefox" peer_pid=2064 peer_label="unconfined"
+                exe="/usr/bin/dbus-daemon" sauid=995 hostname=? addr=? terminal=?'
