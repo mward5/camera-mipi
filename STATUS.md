@@ -1733,9 +1733,18 @@ on my machine."
       on an out-of-focus scene — behavior the stale dev build literally could not produce.
       Rebuilt and re-confirmed gain now moves for real; a ~2.5-minute re-test found one real
       transient instability event but hasn't yet reproduced the *sustained* oscillation the user
-      described watching live — that gap is still open. The search *methodology* below (settle
-      detection, coarse+fine scan, monitor+hysteresis) is unaffected by this; every *AGC-specific*
-      conclusion needs re-validation against the corrected build, not yet done. Full account in
+      described watching live — that gap is still open. **Re-ran the full continuous sweep against
+      the corrected build and got a real answer, not just a caveat**: gain does not stabilize
+      within any practical scan duration on this scene — a first attempt (`SETTLE_TIME=2.5s`,
+      the script's default) looked unstable through positions 0–256 then rock-steady after, which
+      looked like "just needs more settle time," but an 8-second-settle retest showed gain still
+      drifting smoothly (a roughly monotonic ~8.5% decline) across the *entire* ~27s sweep with no
+      point at which it truly stopped. So the fix isn't a longer wait — it's explicit AGC locking
+      during a scan or normalizing the sharpness metric by the gain in effect per sample, an
+      actual design change not yet built. Every AGC-specific number from 2026-07-22 (metric
+      comparison peaks, hill-climb convergence positions) should be treated as measured under
+      contaminated conditions; the search *methodology* (settle detection, coarse+fine scan,
+      monitor+hysteresis) is unaffected since it doesn't depend on AGC behaving. Full account in
       `docs/autofocus-cdaf-scoping.md`'s genuine-unknown 4. Full history, decisions,
       architecture options, and a 4-phase roadmap are all in `docs/autofocus-cdaf-scoping.md` —
       kept as the single source of truth for this effort rather than duplicated here. Summary

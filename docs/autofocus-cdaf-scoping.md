@@ -289,18 +289,53 @@ the need for Option A's plumbing work.
    direct testing, so the gap between what's been measured and what was
    directly observed is still open, not explained away.
 
-   **Practical fallout**: unknown 4 is back to genuinely open, and so is
-   most of what Phase 1's write-up below claimed to have settled about AGC
-   and, by extension, anything downstream that assumed a stable/flat
-   exposure baseline (metric comparison, hill-climb convergence numbers).
-   The *methodology* (continuous session, settle detection, coarse+fine
-   search, monitor+hysteresis) is unaffected — none of that depends on AGC
-   behavior being correct, only on frames existing — but every specific
-   *AGC-related conclusion* from 2026-07-22 needs to be treated as
-   unconfirmed until re-run against the corrected build. Not yet done this
-   session; flagged here rather than silently re-validated, per this
-   project's own standing practice of recording retracted findings rather
-   than quietly overwriting them.
+   **Re-ran the full continuous sweep against the corrected build
+   (2026-07-23) — AGC genuinely does not stabilize within a practical
+   timeframe for this scene, "wait longer" is not the fix.** First attempt
+   at the default `SETTLE_TIME=2.5s`: gain visibly unstable (ranging
+   2.19–3.44) through positions 0–256, then rock-steady at exactly `2.750`
+   for the rest of the sweep (320–960) — looked at first like "just needed
+   more settle time." Retested with `SETTLE_TIME=8s` (more than 3× longer):
+   **gain kept drifting for the entire ~27-second sweep anyway** — a
+   roughly monotonic decline through the whole run (plateau values `3.688 →
+   3.625 → 3.562 → 3.5 → 3.375`, an 8.5% swing, no position at which it
+   truly stopped moving), with additional brief per-position transient dips
+   on top of that slow trend. So the first run's apparent "stabilizes after
+   ~7s" was itself not a reliable pattern — this scene's AGC convergence is
+   evidently a slow, continuous process on the order of tens of seconds to
+   more, not something a bounded pre-scan settle window (of any reasonable
+   length) reliably outlasts. This is a real, if less tidy, answer to
+   unknown 4: **explicit handling (locking exposure/gain during a scan, or
+   normalizing the sharpness metric by the gain in effect when each sample
+   was taken) is needed** — a "wait it out" design is not viable for this
+   scene. Both sweep runs' own sharpness-vs-position "peak" numbers should
+   be read with the same skepticism, for the same reason: gain drift
+   contaminates brightness/contrast, which the sharpness metric can't fully
+   separate from genuine focus changes.
+
+   Worth noting as a separate, not-yet-reconciled observation: this sweep's
+   drift pattern (smooth, mostly one-directional decline) doesn't obviously
+   match the *earlier* standalone static-scene test's pattern (one abrupt
+   dip-then-recover transient in an otherwise flat ~2.5-minute hold) — these
+   may be two different real phenomena (continuous slow adaptation vs.
+   occasional discrete perturbations) rather than one clean story, or may
+   simply reflect different scene/lighting conditions between the two test
+   sessions. Not resolved; recorded rather than papered over.
+
+   **Practical fallout, updated after the re-test above**: unknown 4 is not
+   just "back to open," it now has a real, if unwelcome, answer — AGC
+   genuinely does not stay out of the way during a continuous-session scan
+   on real scenes, and the fix is explicit (locking or metric
+   normalization), not "give it more time." Every *AGC-related conclusion*
+   from 2026-07-22 (metric comparison peak positions, hill-climb convergence
+   numbers, the "no locking needed" claim) should be treated as measured
+   under contaminated conditions and not trusted at face value — the
+   *methodology* around them (continuous session, settle detection,
+   coarse+fine search, monitor+hysteresis) is still sound, since none of it
+   depends on AGC behaving, only on frames existing, but the specific
+   numbers need a genuine re-run with AGC locked or compensated for before
+   they mean anything. That re-run (an actual fix, not just a diagnosis) is
+   the natural next step and hasn't been built yet.
 
 ## Phased plan
 
