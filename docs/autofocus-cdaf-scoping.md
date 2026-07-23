@@ -1,9 +1,17 @@
 # Real closed-loop autofocus (CDAF) for the rear camera — scoping plan
 
-**Status: scoping only, not started.** This document plans the work; no kernel,
-libcamera, or driver source has been touched to implement any of it yet. See
-`scripts/af-sweep-measure.sh` for a first-draft Phase 0 harness (also written,
-also not yet run against hardware).
+**Status (2026-07-23): Phase 0/1 prototyping is well underway with real
+hardware results** — a working coarse+fine hill-climb with settle detection
+and continuous monitor/recovery, validated on two scenes. **Read this
+notice before trusting any AGC-related claim in this document dated
+2026-07-22**: everything measured that day (the "AGC confound eliminated,
+no locking needed" conclusion, and everything downstream of it) was run
+against a stale local libcamera build that turned out to be missing the
+AGC gain-floor fix, making gain appear artificially frozen rather than
+genuinely converged. Found and corrected 2026-07-23 — see genuine unknown
+4 below for the full account. The *search methodology* (settle detection,
+coarse+fine scan, monitor+hysteresis) is unaffected; the *AGC-specific*
+conclusions are not yet re-validated against the corrected build.
 
 ## Why this is next
 
@@ -239,24 +247,60 @@ the need for Option A's plumbing work.
    the same values, is itself worth confirming empirically in Phase 1 before
    assuming AGC-locking requires touching `agc.cpp`).
 
-   **2026-07-22: root cause found, then resolved for the static-scene case.**
-   Phase 0's first attempt found exposure drifting 6.5× across a 16-position
-   sweep with no genuine per-position convergence, because each position was
-   a separate short-lived `cam` process and AGC's slow, smoothed convergence
-   never caught up within one 6-frame burst before state leaked into the
-   next position via the sensor's persisted V4L2 exposure register. Phase
-   1's continuous-session harness (single `cam` process, focus changed
-   mid-stream) fixed this completely: `ExposureTime` read back **identical
-   on all 486 frames** of a full 0–960 sweep. **No explicit AGC-locking
-   mechanism is needed for a static scene** — a continuous session is
-   sufficient by itself, so `soft_simple.cpp`'s `setSensorControls.emit()`
-   re-overwriting an externally-forced value was never actually a problem in
-   practice, because nothing needs to force a value in the first place.
-   **Still open**: this only tested AGC sitting still on an already-converged
-   static scene *before* the sweep started — not what happens *during* an
-   active scan against a scene whose apparent brightness might itself be
-   changing as focus sweeps (e.g. a strongly out-of-focus bright light
-   source). That case hasn't been tested yet.
+   **2026-07-22: root cause found, "resolved" for the static-scene case —
+   2026-07-23: that resolution retracted, it was a measurement artifact of
+   a stale build, not a real finding.** Phase 0's first attempt found
+   exposure drifting 6.5× across a 16-position sweep with no genuine
+   per-position convergence (see the per-position-process-relaunch
+   explanation below, which is still correct and unaffected by this
+   retraction). Phase 1's continuous-session harness then reported
+   `ExposureTime`/`AnalogueGain` **identical across every single frame** of
+   every sweep and hill-climb run for the rest of 2026-07-22 — gain read
+   exactly `1.000000` on literally every frame captured that entire day,
+   which was (wrongly) written up as "AGC confound eliminated, no locking
+   needed."
+
+   **What actually happened, found 2026-07-23**: the local libcamera dev
+   build used for *all* of that testing (`~/work/git-ubuntu/libcamera/
+   build`, driven via `LD_LIBRARY_PATH`/`LIBCAMERA_IPA_MODULE_PATH`
+   overrides in every script) had not been recompiled since **2026-05-26**,
+   while the source tree's git HEAD was at a 2026-07-22 commit. The single
+   relevant commit in that gap: `75b4474` — the AGC gain-floor fix (see
+   `STATUS.md`'s 2026-07-22 entry) — was sitting uncompiled in the tree the
+   whole time. Every AF test that day ran the *pre-fix* AGC, whose
+   documented failure mode is exactly "gain permanently sticks at the
+   floor" — i.e. gain reading exactly `1.000000` on every frame wasn't
+   evidence of clean AGC convergence, it was the bug. Discovered when the
+   user, viewing the rear camera live through GNOME Snapshot (which uses
+   the system-installed package, already correctly built), reported
+   visibly oscillating gain/brightness on an out-of-focus wall — behavior
+   my dev-build testing had never once shown, because it *couldn't*.
+   Rebuilt (`ninja -C build`, confirmed via the reported git hash matching
+   HEAD) and re-tested directly: gain now shows real movement (a defocused-
+   wall test climbed `1.9375 → 2.53125 → 3.125` over ~4s, then a separate
+   ~2.5-minute observation found one real transient event — gain dipped
+   `3.125 → 2.5 → 1.875` then climbed back through several steps to a new
+   steady value `2.4375` over ~2.7s, around 12s into that capture, with the
+   remaining ~130s rock-steady) — confirming AGC genuinely can and does
+   move now, unlike literally every reading from the previous day. **Not
+   fully resolved**: this single transient is evidence of real instability
+   but is not the same as the *sustained continuous* oscillation the user
+   described watching live in Snapshot — that hasn't been reproduced yet in
+   direct testing, so the gap between what's been measured and what was
+   directly observed is still open, not explained away.
+
+   **Practical fallout**: unknown 4 is back to genuinely open, and so is
+   most of what Phase 1's write-up below claimed to have settled about AGC
+   and, by extension, anything downstream that assumed a stable/flat
+   exposure baseline (metric comparison, hill-climb convergence numbers).
+   The *methodology* (continuous session, settle detection, coarse+fine
+   search, monitor+hysteresis) is unaffected — none of that depends on AGC
+   behavior being correct, only on frames existing — but every specific
+   *AGC-related conclusion* from 2026-07-22 needs to be treated as
+   unconfirmed until re-run against the corrected build. Not yet done this
+   session; flagged here rather than silently re-validated, per this
+   project's own standing practice of recording retracted findings rather
+   than quietly overwriting them.
 
 ## Phased plan
 

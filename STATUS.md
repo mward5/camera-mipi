@@ -1723,9 +1723,23 @@ on my machine."
       consume the `.aiqb` wholesale, just mine those specific fields once the format is known.
 - [ ] **Real closed-loop autofocus for the rear camera — scoped 2026-07-22, working hill-climb
       prototype validated end-to-end (5/5 repeatable convergence) against real hardware,
-      in-tree libcamera integration (Phase 2/3) not yet started.** Full history, decisions,
+      in-tree libcamera integration (Phase 2/3) not yet started.** **2026-07-23 correction, read
+      first**: every AGC-related claim below dated 2026-07-22 (the "AGC confound eliminated, no
+      locking needed" conclusion in particular) was measured against a local libcamera dev build
+      that hadn't been recompiled since 2026-05-26 and was silently missing the 2026-07-22 AGC
+      gain-floor fix (`75b4474`) — gain reading exactly `1.000000` on every single frame all day
+      wasn't clean convergence, it was that bug (gain stuck at the floor). Caught when the user
+      observed real oscillating gain live in GNOME Snapshot (the correctly-built system package)
+      on an out-of-focus scene — behavior the stale dev build literally could not produce.
+      Rebuilt and re-confirmed gain now moves for real; a ~2.5-minute re-test found one real
+      transient instability event but hasn't yet reproduced the *sustained* oscillation the user
+      described watching live — that gap is still open. The search *methodology* below (settle
+      detection, coarse+fine scan, monitor+hysteresis) is unaffected by this; every *AGC-specific*
+      conclusion needs re-validation against the corrected build, not yet done. Full account in
+      `docs/autofocus-cdaf-scoping.md`'s genuine-unknown 4. Full history, decisions,
       architecture options, and a 4-phase roadmap are all in `docs/autofocus-cdaf-scoping.md` —
-      kept as the single source of truth for this effort rather than duplicated here. Summary:
+      kept as the single source of truth for this effort rather than duplicated here. Summary
+      (AGC-related parts of which are now superseded by the correction above):
       Phase 0 (`scripts/af-sweep-measure.sh`, per-position `cam` relaunch) hit a confounded
       dataset (AGC state leaking across positions) and a real `/dev/media0` numbering bug (fixed
       in both that script and `dell-xps9315-test-rear-dual.sh`); Phase 1 fixed the confound with
