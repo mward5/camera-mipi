@@ -1746,13 +1746,40 @@ on my machine."
       revisit) traced to a transient scene disturbance (someone walking through frame during
       the scan), not a hardware or algorithm bug — but it's a real robustness gap worth fixing
       (single-sample coarse-scan winners aren't re-confirmed before committing to a fine-search
-      window). **Separately, and unrelated to the AF work itself**: the rear camera doesn't
-      currently show up in PipeWire's device list (`wpctl status`) even though the system-
-      installed libcamera enumerates it fine via `cam -l` directly — GNOME Snapshot/Camera
-      can't see the rear camera right now for that reason. Not investigated yet (deferred at
-      the user's request); most likely candidate is the many repeated `pipewire`/`wireplumber`
-      restarts every test script in this effort performs, not a libcamera source change (none
-      were made this session). Still open on the AF side: repeated-trial/jolt testing on the
+      window). **Separately, and unrelated to the AF work itself: a real, now-fixed WirePlumber
+      camera-enumeration race was found and resolved 2026-07-23.** The rear camera had stopped
+      showing up in PipeWire's device list (`wpctl status`) — user reported it wasn't working
+      even before this session started, and specifically raised (reasonably) whether the
+      2026-07-22 rear-camera CCM revert had broken more than just the color tuning, or whether
+      that same morning's software update was responsible. **Both ruled out with direct
+      evidence**: `src/ipa/simple/data/s5k3j1.yaml` in `~/work/git-ubuntu/libcamera` is
+      byte-for-byte identical to its state right after S5K3J1 support was first added (`git
+      diff 4b111cf -- src/ipa/simple/data/s5k3j1.yaml` is empty) — the CCM add+revert was
+      tested live and reverted before ever being committed, so nothing was lost; only the
+      changelog *text* documenting that history got bundled into a later, unrelated commit
+      (`0edde37`, message explains this explicitly). And `/var/log/apt/history.log` shows
+      that morning's update touched krb5, tar, a gstreamer point-release, gnome-session, and
+      unrelated packages — none of `pipewire`/`wireplumber`/`libcamera`/the kernel, and no
+      reboot had happened since the previous day. **Actual root cause, found directly in
+      WirePlumber's own journal** (`journalctl --user -u wireplumber`): `ERROR MediaDevice
+      media_device.cpp:848 /dev/media1[intel-ipu6]: Failed to setup link 'Intel IPU6 CSI2
+      1'[1] -> 'Intel IPU6 ISYS Capture 8'[0]: Device or resource busy`. libcamera's camera
+      manager enumerates cameras once at startup; if the IPU6 media-graph link is held by
+      anything else (e.g. a concurrent `cam` test process, plausibly from this session's own
+      testing, or something else on a boot before this session existed) at that exact moment,
+      the rear camera's registration fails silently with no visible symptom anywhere except
+      that one buried journal line, and it stays missing for the rest of that WirePlumber
+      session — explaining both today's specific instance and plausibly the general flakiness
+      going back further. **Fixed**: `killall -9 cam` (ensure nothing else holds `/dev/media1`)
+      then a clean `systemctl --user stop wireplumber pipewire pipewire.socket` → `start` cycle;
+      confirmed via `wpctl status` showing `s5k3j1 [libcamera]` / `Built-in Back Camera` as a
+      real source, and via a clean WirePlumber journal with the `Adding camera
+      '\_SB_.PC00.LNK0'` line completing normally this time. User confirmed Snapshot sees the
+      rear camera now. **Not yet done**: this is a timing race, not eliminated — it can
+      presumably recur if WirePlumber (re)starts while something else holds `/dev/media1`; no
+      permanent fix (e.g. a startup retry/backoff in WirePlumber's camera monitor, or ensuring
+      test scripts never leave `cam` running across a wireplumber restart) has been
+      investigated. Still open on the AF side: repeated-trial/jolt testing on the
       second scene, AGC-during-an-active-scan, exposure/gain logging in the hill-climb trace,
       and the eventual Phase 2/3 in-tree port. PDAF context (dead end on this kernel, WIP
       archived in `~/work/git-ubuntu/libcamera` branch `pdaf-sideband-wip`) is preserved in
