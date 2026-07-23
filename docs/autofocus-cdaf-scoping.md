@@ -468,18 +468,90 @@ position 704's overshoot pattern specifically, ideally with finer time
 resolution (higher frame rate or a smaller/faster stream config) than this
 ~25fps 800×600 setup provides.
 
-**Files touched:** `scripts/af-continuous-sweep.sh` (harness) and
-`scripts/af-analyze-continuous.py` (analysis) — landed in `scripts/`, not a
-new `tools/` dir, and already committed. Still needed: the actual hill-climb
-control loop (these two scripts only sweep + measure, they don't yet drive a
-converge-and-track algorithm). No libcamera/kernel changes.
+**Files touched:** `scripts/af-continuous-sweep.sh` + `scripts/af-analyze-
+continuous.py` (sweep/measure only), and now `scripts/af-hillclimb-
+prototype.py` (the actual control loop, below) — all in `scripts/`, all
+committed. No libcamera/kernel changes.
+
+**Run 2026-07-22, later same day — hill-climb control loop built and
+validated end-to-end against real hardware.** `scripts/af-hillclimb-
+prototype.py` is a live, interactive controller (not a fixed schedule like
+the sweep scripts): it runs one continuous `cam` session (`--capture` with no
+count = stream until interrupted), polls for each new frame by expected
+filename as it's written (simpler than the sweep scripts' clock-correlation
+trick, since here the controller itself issues every focus write and can
+timestamp with its own clock directly), and drives:
+- A coarse-then-fine search (coarse step 96, fine step 16 by default,
+  structurally modeled on `ipu3/algorithms/af.cpp`'s two-phase scan).
+- **Settle detection instead of a fixed delay** at every step: waits for N
+  (default 4) consecutive frames within a tolerance band (default 2%) of
+  each other before trusting a reading, capped by a timeout — directly
+  applying the corrected settle-time finding above rather than the
+  originally-guessed fixed delay.
+- After converging, a **continuous monitor loop** (not converge-and-stop):
+  periodically takes another short settled reading and compares it to the
+  converged baseline; two consecutive degraded readings (hysteresis against
+  single-reading noise) trigger a fresh coarse+fine scan. This is the
+  "continuous AF, zero app cooperation" design decision made concrete — it
+  runs and re-converges on its own, no external trigger involved.
+- A scripted self-test jolt partway through the monitor phase (deliberately
+  writing a bad position, simulating something knocking focus off) so the
+  recovery path gets exercised on every run without needing a human to
+  change the physical scene mid-test.
+
+**Result, run against the same stationary wall scene**: coarse+fine scan
+converged to position 720 (sharpness 1515.2, a real plateau — neighboring
+fine samples 688/704/720/736 all landed within ~1% of each other, 1517–1534).
+The monitor loop held quietly for the pre-jolt period (readings within ~1.4%
+of baseline the whole time — no false triggers, confirming the hysteresis
+design works). The jolt (forced to position 0) produced a consistent ~5–7%
+sharpness drop; **a first run at the default 10% threshold didn't trigger** —
+real, useful calibration data, not a bug: this scene's overall sharpness
+dynamic range across the whole 0–1023 sweep is only about 16% (coarse-scan
+min 1289 to max 1538), so a jolt to a moderately-bad-but-not-worst position
+didn't cross a 10% bar. A re-run at 5% (chosen because the steady-state
+noise floor measured well under 2%, so 5% has real margin above noise while
+still being small enough to catch a real but moderate disturbance) triggered
+correctly on the 2nd consecutive degraded reading and re-converged — this
+time landing on position 784 (sharpness 1479.7), not exactly the original
+720. **Not a bug**: the coarse scan's own data shows 672–864 is a broad,
+gently-varying plateau (coarse readings 1505–1529 across that whole span),
+not a sharp single-valued peak, so which exact position a grid-based
+coarse+fine search lands on within a wide plateau is sensitive to noise and
+grid alignment between runs — worth knowing as a real property of this
+search strategy (repeatable *quality*, not always the exact same *position*,
+on a scene with a broad rather than sharp focus response), not treated as a
+defect.
+
+**Practical tuning takeaway**: `--degrade-threshold` should be set relative
+to the *actual scene's* sharpness dynamic range and the measured noise
+floor, not left at an arbitrary default — 10% was too conservative here.
+Phase 3's real implementation should likely compute a threshold as a
+fraction of the *converged* peak's own prominence (e.g. relative to the gap
+between the converged sharpness and the coarse scan's minimum sampled value)
+rather than a single hardcoded constant, since that dynamic range clearly
+varies by scene (this run: ~16% end-to-end swing; the earlier sweep runs
+implied similar-magnitude ranges — no scene tested so far has shown a huge,
+easy-to-threshold swing).
 
 **Done when:** the tool reliably converges focus across multiple real scenes
 with a documented, repeatable success rate, **and** demonstrates stable
 continuous operation (re-scans when the scene/focus genuinely changes, stays
-quiet on a static scene) over an extended run, not just a single convergence.
-The chosen metric/constants/AGC-interaction/hysteresis handling are written
-down here for Phase 3 to consume.
+quiet on a static scene) over an extended run, not just a single convergence
+— **reached for one scene, one run of each condition** (quiet-hold and
+jolt-recovery both demonstrated). **Not yet done**: multiple repeated runs
+for a real success-rate number, multiple distinct scenes beyond the one wall
+scene, and the still-open items below.
+
+**Not yet done, natural next steps**: test AGC behavior *during* an active
+scan (not just before one); repeat with a smaller step size to see whether
+settle-time variability scales with distance; compare Laplacian variance
+against Tenengrad; make the degrade-threshold scene-relative rather than a
+fixed constant (see above); run multiple repeated trials for a real
+convergence success-rate number rather than anecdotal single runs; test
+against a genuinely changing scene (not just a scripted jolt) to validate
+the "re-scans when focus genuinely changes" half of continuous AF, which the
+jolt self-test approximates but doesn't fully substitute for.
 
 ### Phase 2 — in-tree `soft.mojom` + `SwIspStats` plumbing (Option A, part 1)
 

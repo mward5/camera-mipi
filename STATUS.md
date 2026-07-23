@@ -1721,8 +1721,9 @@ on my machine."
       useful for this despite being XML/human-readable. Realistic scope: the soft ISP only
       consumes a small subset (black level, AWB gains, a 3x3 CCM, gamma) — don't expect to
       consume the `.aiqb` wholesale, just mine those specific fields once the format is known.
-- [ ] **Real closed-loop autofocus for the rear camera — scoped 2026-07-22, real Phase 0/1
-      progress, hill-climb algorithm itself not yet built.** Full architecture options,
+- [ ] **Real closed-loop autofocus for the rear camera — scoped 2026-07-22, working hill-climb
+      prototype validated end-to-end against real hardware, in-tree libcamera integration
+      (Phase 2/3) not yet started.** Full architecture options,
       decisions made 2026-07-22 (continuous AF is the actual goal, not single-shot; must work
       with zero app cooperation, like `Agc`/`Awb` already do), a 4-phase roadmap, and open
       questions are all in `docs/autofocus-cdaf-scoping.md`. Phase 0's first attempt
@@ -1747,13 +1748,26 @@ on my machine."
       removed, settle time for a constant 64-unit step ranges from instant up to ~870ms
       depending on the specific transition, including one apparent overshoot/ringing case — the
       earlier "≲1 frame" read from the noisy handheld run was flatly **wrong**, not just
-      imprecise. This means a real hill-climb loop can't safely use a short fixed per-step
-      delay; needs either a generous fixed delay or real settle detection (reviving the kernel
-      driver's unimplemented `GetStatus` busy signal is now a more live option, open question 5
-      in the doc). Next steps (test AGC during an active scan not just before one, check
-      whether settle time scales with step size, compare sharpness metrics, build the actual
-      hill-climb loop) are in the doc's Phase 1 section. PDAF context (dead end on this kernel,
-      WIP archived in `~/work/git-ubuntu/libcamera` branch `pdaf-sideband-wip`) is preserved in
+      imprecise. **The actual hill-climb control loop is now built and works**:
+      `scripts/af-hillclimb-prototype.py` runs one continuous `cam` session, drives a
+      coarse-then-fine search using settle detection (N consecutive stable frames, not a fixed
+      delay) at every step, then — instead of stopping — switches to a continuous monitor loop
+      that re-scans on confirmed degradation (2 consecutive bad readings, hysteresis against
+      noise), with a scripted self-test jolt to exercise recovery without needing a human to
+      change the scene. Ran clean end-to-end against the wall scene: converged (position 720,
+      real plateau — neighboring positions within ~1% of each other), held quietly through the
+      pre-jolt monitor period (no false triggers), and correctly detected+recovered from the
+      jolt once the degrade-threshold was tuned down from an untested 10% default to 5% (real
+      calibration finding: this scene's whole-range sharpness dynamic range is only ~16%, so
+      10% was too conservative — Phase 3 should likely make the threshold scene-relative, not a
+      fixed constant). Re-scan landed on a different position (784 vs. the original 720) within
+      the same broad, gently-sloped plateau — not a bug, a real property of grid search on a
+      wide rather than sharp peak, worth remembering when judging "repeatability" later.
+      Demonstrated on one scene, one run each of quiet-hold and jolt-recovery — next steps
+      (multiple repeated trials for a real success rate, a second scene, AGC-during-a-scan,
+      step-size-vs-settle-time, metric comparison) are in the doc's Phase 1 section. PDAF
+      context (dead end on this kernel, WIP archived in `~/work/git-ubuntu/libcamera` branch
+      `pdaf-sideband-wip`) is preserved in
       that doc rather than here.
 - [ ] **Rebase `drivers/ipu-bridge` onto current real upstream, before further cleanup.**
       Its base commit (`7364894 from linux_7.0.0.orig.tar.gz`) came from an apt-source
