@@ -368,6 +368,54 @@ the need for Option A's plumbing work.
    they mean anything. That re-run (an actual fix, not just a diagnosis) is
    the natural next step and hasn't been built yet.
 
+   **Decided 2026-07-23: lock, don't normalize — with numbers, not just
+   reasoning.** Two candidate fixes were on the table: lock exposure/gain
+   during a scan, or normalize the sharpness metric by the gain in effect
+   per sample. Tried the cheap option first — the same external `v4l2-ctl`
+   bypass trick that makes the whole standalone prototype work for
+   `focus_absolute` (nothing else touches that control, so external writes
+   stick indefinitely). **Tested directly against `analogue_gain` on the
+   sensor subdev: it does not work.** A forced write of `analogue_gain=500`
+   had zero visible effect — every frame across the whole capture kept
+   reading whatever AGC was already driving. AGC re-asserts exposure/gain
+   every single frame, so real locking requires either a blunt, session-
+   wide YAML edit (remove `Agc:` from `s5k3j1.yaml` entirely — not scoped
+   to just a scan, needs a restart to undo) or genuine Phase 2/3 work
+   inside the IPA. Normalization, by contrast, needs zero control-path
+   changes — pure post-hoc math on metadata already available in the
+   existing Python prototype.
+
+   That cost asymmetry alone might have favored normalization. But the
+   actual deciding factor is how much gain contaminates the metric, which
+   was measured directly rather than assumed: held focus constant at six
+   different positions (reusing already-captured frames from the
+   `SETTLE_TIME=8s` re-test above, at exactly the points where AGC's own
+   oscillation happened to vary gain within a single held-position burst —
+   no new capture needed) and correlated gain against Tenengrad sharpness
+   within each burst. **Pooled correlation: r = 0.705** (n=167, across 6
+   positions) — a strong, real relationship. For a ~40–44% gain swing
+   (roughly AGC's natural oscillation range), sharpness moved 4–8%.
+   Compare that to the *entire* cross-position focus signal in the same
+   dataset: only ~8% total spread across the whole 0–960 sweep. **Gain
+   noise and the actual focus signal are roughly the same size.** Worse for
+   normalization's case: the relationship isn't uniform enough to trust a
+   single global correction — per-position correlation ranged from
+   `r=0.193` to `r=0.851` across the six bursts, and gain-sensitivity
+   itself varied (similar ~43% gain swings produced anywhere from 4.1% to
+   7.6% sharpness swings depending on position/scene content). A global
+   normalization formula risks leaving real residual contamination exactly
+   where the confound is large enough to matter.
+
+   **Decision: lock.** Given the confound is comparable in size to the
+   signal itself, normalization's correctness risk is highest exactly where
+   it needs to work best — "roughly right" isn't good enough when the noise
+   floor and the signal are the same order of magnitude. Locking costs more
+   to implement (confirmed above — no cheap bypass, needs a YAML edit for
+   Phase 1 or real IPA work for Phase 3) but is correct by construction,
+   with no gain→metric model to get subtly wrong. **Not yet built**: the
+   actual YAML-based lock for Phase 1 re-validation, and the eventual
+   Phase 3 `IPAContext`-coordinated pause/resume for the real algorithm.
+
 ## Phased plan
 
 ### Phase 0 — instrument and measure (done: a first-draft script exists)
