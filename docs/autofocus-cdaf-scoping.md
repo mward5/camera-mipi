@@ -412,9 +412,53 @@ the need for Option A's plumbing work.
    floor and the signal are the same order of magnitude. Locking costs more
    to implement (confirmed above — no cheap bypass, needs a YAML edit for
    Phase 1 or real IPA work for Phase 3) but is correct by construction,
-   with no gain→metric model to get subtly wrong. **Not yet built**: the
-   actual YAML-based lock for Phase 1 re-validation, and the eventual
-   Phase 3 `IPAContext`-coordinated pause/resume for the real algorithm.
+   with no gain→metric model to get subtly wrong.
+
+   **Built and validated 2026-07-23.** `scripts/af-continuous-sweep.sh` now
+   has `LOCK_AGC=1` (the default): a short pre-warm `cam` run with the real
+   `Agc` still active picks a reasonable starting exposure/gain (not a
+   "correct" one — just *a* value, since the goal is constancy, not
+   accuracy), then `- Agc:` is removed from the local dev build's
+   `s5k3j1.yaml` (`sed`, one line, restored via a `cleanup()` trap on exit)
+   and the pre-warmed exposure/gain are re-asserted once via `v4l2-ctl`
+   before the real sweep starts. Confirmed working three ways: the sensor's
+   raw `exposure`/`analogue_gain` registers read identical before and after
+   a full sweep; `AnalogueGain`/`ExposureTime` don't appear in `cam
+   --metadata`'s output *at all* during the locked run (not just constant —
+   genuinely absent, since nothing populates those fields without `Agc`
+   running); and the YAML is verified back to exactly `git HEAD` afterward.
+
+   **Real payoff**: re-ran the full 0–960 wall-scene sweep locked. Spread
+   dropped to **4% of average** (vs. 7–16% in every prior contaminated
+   run), with a clean, tight, near-flat region across 0–448 (essentially
+   noise-level wobble) followed by a genuine single rise to a peak at
+   **position 640** and a clean fall-off through 960 — the textbook
+   single-peaked curve this project has been trying to get all session.
+   Notably, 640 lands right in the same general region (640–720) that
+   multiple *contaminated* hill-climb runs also converged to earlier — good
+   corroborating evidence that the search algorithm's earlier results were
+   in the right ballpark despite the flawed measurement, even though the
+   specific numbers shouldn't be trusted (per the retraction above). This
+   is now a clean, trustworthy baseline for this scene.
+
+   **One real robustness issue found and fixed while building this**: a run
+   killed by an enclosing `timeout` escalating past `SIGTERM` to `SIGKILL`
+   (which can't be trapped) left the YAML mid-edit, with `Agc` missing and
+   no automatic recovery — happened once during testing. Fixed with a
+   self-healing check at the top of the script: if `Agc` is missing from
+   the YAML on startup (a sign a previous run didn't clean up), it's
+   restored via `git checkout` before proceeding, rather than silently
+   running the next invocation "locked" when the caller didn't ask for
+   that.
+
+   **Not yet done**: the same lock hasn't been wired into
+   `af-hillclimb-prototype.py` yet (only the sweep script) — the actual
+   hill-climb/metric-comparison/repeated-trial results from earlier are
+   still not re-validated under lock, only the raw sweep shape has been.
+   Also not yet built: the eventual Phase 3 `IPAContext`-coordinated
+   pause/resume for the real in-tree algorithm (this YAML-swap approach is
+   Phase-1-only, deliberately blunt, and only safe because it targets the
+   local dev build, never the system-installed package).
 
 ## Phased plan
 
