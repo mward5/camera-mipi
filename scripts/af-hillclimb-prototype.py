@@ -7,7 +7,21 @@ v4l2-ctl to the lc898217 lens subdev, reads frames as `cam` writes them to
 disk (polling for the next expected filename rather than the clock-
 correlation trick af-analyze-continuous.py needed - here the controller
 itself issues every focus write, so it can just timestamp with its own
-clock), and computes a Laplacian-variance sharpness metric per frame.
+clock), and computes a Tenengrad-style gradient-energy sharpness metric per
+frame.
+
+Originally used Laplacian variance (matching af-analyze-continuous.py), but
+scripts/af-compare-metrics.py plus a direct visual check of the actual PPM
+frames (2026-07-22 - see docs/autofocus-cdaf-scoping.md) found Laplacian
+variance's reported peak on the wall test scene (positions 0-256) does NOT
+match what the images actually look like - those frames are visibly
+blurrier than positions ~640-720, which is where Tenengrad's peak (and a
+direct look at the frames) says the real peak is. Root cause: this scene
+has a large overexposed glare/hotspot plus a noisy background, and a naive
+full-frame Laplacian variance is dominated by that rather than the
+in-focus grid-line texture. Switched the live controller to Tenengrad
+accordingly - still not verified as *the* right choice in general, only
+verified as more trustworthy than Laplacian variance *on this scene*.
 
 Two things this deliberately does differently from a naive hill-climb,
 both driven by empirical findings from the sweep scripts:
@@ -38,16 +52,26 @@ import sys
 import time
 from pathlib import Path
 
-from PIL import Image, ImageFilter, ImageStat
+from PIL import Image, ImageChops, ImageFilter, ImageStat
 
 FOCUS_MIN = 0
 FOCUS_MAX = 1023
 
+# Tenengrad-style gradient energy, matching scripts/af-compare-metrics.py.
+# Approximate (clips at 255 per pixel before combining Gx/Gy) but empirically
+# validated against actual frame content, unlike the Laplacian-variance
+# metric this replaced - see the module docstring.
+_SOBEL_X = ImageFilter.Kernel((3, 3), [-1, 0, 1, -2, 0, 2, -1, 0, 1], scale=1, offset=128)
+_SOBEL_Y = ImageFilter.Kernel((3, 3), [-1, -2, -1, 0, 0, 0, 1, 2, 1], scale=1, offset=128)
+_SQUARE_LUT = [min(255, ((p - 128) ** 2) // 64) for p in range(256)]
+
 
 def sharpness(path: Path) -> float:
     img = Image.open(path).convert("L")
-    edges = img.filter(ImageFilter.FIND_EDGES)
-    return ImageStat.Stat(edges).var[0]
+    gx = img.filter(_SOBEL_X).point(_SQUARE_LUT)
+    gy = img.filter(_SOBEL_Y).point(_SQUARE_LUT)
+    combined = ImageChops.add(gx, gy)
+    return ImageStat.Stat(combined).sum[0]
 
 
 def find_ipu6_media_device() -> str:

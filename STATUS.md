@@ -1722,53 +1722,26 @@ on my machine."
       consumes a small subset (black level, AWB gains, a 3x3 CCM, gamma) — don't expect to
       consume the `.aiqb` wholesale, just mine those specific fields once the format is known.
 - [ ] **Real closed-loop autofocus for the rear camera — scoped 2026-07-22, working hill-climb
-      prototype validated end-to-end against real hardware, in-tree libcamera integration
-      (Phase 2/3) not yet started.** Full architecture options,
-      decisions made 2026-07-22 (continuous AF is the actual goal, not single-shot; must work
-      with zero app cooperation, like `Agc`/`Awb` already do), a 4-phase roadmap, and open
-      questions are all in `docs/autofocus-cdaf-scoping.md`. Phase 0's first attempt
-      (`scripts/af-sweep-measure.sh`, one `cam` process per focus position) found and fixed a
-      `/dev/media0`-vs-`/dev/media1` numbering bug (media device enumeration order isn't stable
-      across boots — same fix applied to `dell-xps9315-test-rear-dual.sh`, which had the
-      identical latent bug), but its dataset turned out confounded: every burst's first frame
-      reads as blank, and AGC exposure drifted 6.5× across the sweep because each position was
-      a separate short-lived process and exposure is a persisted V4L2 hardware register that
-      leaked state across positions. **Fixed in Phase 1** (`scripts/af-continuous-sweep.sh` +
-      `scripts/af-analyze-continuous.py`, one continuous `cam` session at 800×600 with focus
-      changed mid-stream from a concurrent process against the separate lens subdev, correlated
-      via a calibrated clock offset since `cam`'s own timestamps run on a different epoch than
-      `/proc/uptime`): re-run confirmed `ExposureTime` identical on all 486 frames of a full
-      0–960 sweep (AGC confound genuinely eliminated for a static scene, no locking needed) and
-      produced a real, non-monotonic sharpness-vs-position curve. First run (handheld) had 13%
-      spread vs. Phase 0's confounded 104%, peak near position 640; **a same-day follow-up with
-      the laptop stationary against a real test scene (a wall the user demos AF against on
-      Windows) reproduced the AGC finding exactly (`ExposureTime` identical again, same value)
-      and gave a *different* peak (0–256, this scene's own real focus distance — expected, not a
-      contradiction) plus a genuinely important settle-time correction**: with handshake noise
-      removed, settle time for a constant 64-unit step ranges from instant up to ~870ms
-      depending on the specific transition, including one apparent overshoot/ringing case — the
-      earlier "≲1 frame" read from the noisy handheld run was flatly **wrong**, not just
-      imprecise. **The actual hill-climb control loop is now built and works**:
-      `scripts/af-hillclimb-prototype.py` runs one continuous `cam` session, drives a
-      coarse-then-fine search using settle detection (N consecutive stable frames, not a fixed
-      delay) at every step, then — instead of stopping — switches to a continuous monitor loop
-      that re-scans on confirmed degradation (2 consecutive bad readings, hysteresis against
-      noise), with a scripted self-test jolt to exercise recovery without needing a human to
-      change the scene. Ran clean end-to-end against the wall scene: converged (position 720,
-      real plateau — neighboring positions within ~1% of each other), held quietly through the
-      pre-jolt monitor period (no false triggers), and correctly detected+recovered from the
-      jolt once the degrade-threshold was tuned down from an untested 10% default to 5% (real
-      calibration finding: this scene's whole-range sharpness dynamic range is only ~16%, so
-      10% was too conservative — Phase 3 should likely make the threshold scene-relative, not a
-      fixed constant). Re-scan landed on a different position (784 vs. the original 720) within
-      the same broad, gently-sloped plateau — not a bug, a real property of grid search on a
-      wide rather than sharp peak, worth remembering when judging "repeatability" later.
-      Demonstrated on one scene, one run each of quiet-hold and jolt-recovery — next steps
-      (multiple repeated trials for a real success rate, a second scene, AGC-during-a-scan,
-      step-size-vs-settle-time, metric comparison) are in the doc's Phase 1 section. PDAF
-      context (dead end on this kernel, WIP archived in `~/work/git-ubuntu/libcamera` branch
-      `pdaf-sideband-wip`) is preserved in
-      that doc rather than here.
+      prototype validated end-to-end (5/5 repeatable convergence) against real hardware,
+      in-tree libcamera integration (Phase 2/3) not yet started.** Full history, decisions,
+      architecture options, and a 4-phase roadmap are all in `docs/autofocus-cdaf-scoping.md` —
+      kept as the single source of truth for this effort rather than duplicated here. Summary:
+      Phase 0 (`scripts/af-sweep-measure.sh`, per-position `cam` relaunch) hit a confounded
+      dataset (AGC state leaking across positions) and a real `/dev/media0` numbering bug (fixed
+      in both that script and `dell-xps9315-test-rear-dual.sh`); Phase 1 fixed the confound with
+      a continuous-session harness (`scripts/af-continuous-sweep.sh`/`af-analyze-continuous.py`)
+      and, along the way, corrected an earlier wrong settle-time guess (real range: instant to
+      ~870ms, not "~1 frame") and caught a real metric-correctness bug (`scripts/af-compare-
+      metrics.py` + direct visual inspection of frames found Laplacian variance's claimed peak
+      was actually blurrier than Tenengrad's on the glare-heavy test scene — switched the
+      default metric). The actual hill-climb controller (`scripts/af-hillclimb-prototype.py`)
+      is built and works: coarse+fine search with settle detection (not a fixed delay),
+      continuous monitor-and-rescan (not converge-and-stop, per the "zero app cooperation"
+      decision), validated with 5 repeated convergence trials landing within one fine-step of
+      each other and a working jolt-detect-recover cycle. Still open: a second test scene,
+      AGC-during-an-active-scan, and the eventual Phase 2/3 in-tree port. PDAF context (dead
+      end on this kernel, WIP archived in `~/work/git-ubuntu/libcamera` branch
+      `pdaf-sideband-wip`) is preserved in that doc rather than here.
 - [ ] **Rebase `drivers/ipu-bridge` onto current real upstream, before further cleanup.**
       Its base commit (`7364894 from linux_7.0.0.orig.tar.gz`) came from an apt-source
       snapshot that's already confirmed stale: diffing it against

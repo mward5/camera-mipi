@@ -205,11 +205,19 @@ the need for Option A's plumbing work.
    far) or whether the variability is purely transition/position-specific
    regardless of distance moved.
 2. **Which sharpness metric actually works on real frames from this sensor.**
-   Candidates: Laplacian variance, Tenengrad (gradient magnitude), or a metric
-   matching what `SwStatsCpu`'s existing sparse sampling could cheaply support.
-   Evaluate against real captured frames across multiple scenes/lighting, for
-   monotonicity around the true focus point — a metric with multiple local
-   maxima or a flat/noisy peak makes hill-climbing unreliable.
+   **Measured 2026-07-22** (see Phase 1's metric-comparison results below) —
+   Laplacian variance and Tenengrad were compared on the same dataset and
+   they disagreed sharply on where the peak was; settled by looking at the
+   actual images, not trusting either number. **Laplacian variance was
+   actually wrong** on the test scene (a glare/hotspot-heavy wall), not just
+   noisier — its claimed peak was visibly blurrier than Tenengrad's. Switched
+   the hill-climb prototype to Tenengrad. **Not fully resolved**: only tested
+   on one scene with a specific confound (large overexposed region); unknown
+   whether Tenengrad's win generalizes or was specific to that glare problem,
+   and whether restricting either metric to a well-exposed textured ROI
+   (excluding saturated regions) would be a more fundamental fix than the
+   choice of metric formula. `SwStatsCpu`'s sparse-sampling-compatible metric
+   option from the original framing hasn't been evaluated at all yet.
 3. **How 0–1023 maps to actual usable lens travel.** Unknown whether the lens
    hits hard mechanical/magnetic stops well short of the advertised range.
    Related but distinct from `docs/vcm-investigation-lc898217.md`'s still-open
@@ -534,24 +542,95 @@ varies by scene (this run: ~16% end-to-end swing; the earlier sweep runs
 implied similar-magnitude ranges — no scene tested so far has shown a huge,
 easy-to-threshold swing).
 
+**Run 2026-07-22, later same day — metric comparison finds Laplacian
+variance was actually WRONG on this scene, not just noisy; switched to
+Tenengrad and the results got dramatically cleaner.** `scripts/af-compare-
+metrics.py` computed both Laplacian variance and a Tenengrad-style
+gradient-energy metric (Sobel Gx/Gy, squared, summed — approximate, clips at
+255/pixel before combining, no numpy on this box) on the same `run3-
+stationary` frames already on disk, no new capture needed. The two metrics
+disagreed sharply: Laplacian variance's mean-sharpness peak was at position
+0–256; Tenengrad's was at 640–704. **Settled by looking at the actual
+frames, not by trusting either number**: converted representative PPMs
+(positions 0, 256, 640, 704, 960) to PNG and inspected them directly.
+Positions 0 and 256 are visibly blurry (soft, thick grid lines on the wall's
+grid pattern); 640 and 704 are visibly crisp (thin, well-defined lines) —
+**Tenengrad's peak matches reality; Laplacian variance's claimed peak does
+not.** Root cause, plausible: this scene has a large overexposed glare/
+hotspot (a bright reflection or light source) plus a noisy background, and
+naive full-frame Laplacian variance (PIL's `FIND_EDGES`, no ROI exclusion)
+is dominated by that rather than the in-focus grid-line texture — the
+metric was measuring something real, just not focus.
+
+**This retroactively casts doubt on every specific converged-position number
+reported above from the Laplacian-variance-based runs** (720, 784, etc.) —
+the search *algorithm* (coarse+fine, settle detection, monitor+hysteresis+
+recovery) is still validated as mechanically sound, since it's metric-
+agnostic, but its *specific numeric outputs* on this scene, from before this
+fix, shouldn't be trusted as ground truth. (As it happens, those runs'
+Laplacian-variance coarse scans did *also* score 640–720 above position 0
+internally — e.g. run5's coarse scan read 1529.0 at 672 vs. 1429.0 at 0 —
+so they likely converged to a real-enough sharp region rather than a
+completely wrong one; but the absolute values were unreliable enough, and
+disagreed enough between separate sessions on presumably the same physical
+setup — run3's position-0 mean was 1878, run4/run5's were 1429–1449, a >25%
+gap — that this shouldn't be relied on as confirmation.)
+
+**Fixed**: `scripts/af-hillclimb-prototype.py` now uses the same Tenengrad
+metric as the default (import note: still an approximation, not a
+mathematically pure Tenengrad, and still not proven to be *the* right choice
+in general — only proven more trustworthy than Laplacian variance *on this
+scene*, via direct visual inspection, which is the standard any future
+metric change should be held to as well). Re-ran the full converge/monitor/
+jolt/recover cycle with the fix: coarse+fine scan now produces a clean,
+textbook single-peaked curve (rises smoothly to a peak at 704, falls away on
+both sides — compare the earlier Laplacian-variance runs' noisier, multi-
+bump shapes), and **converged to the exact same position (704) both before
+and after the jolt-triggered re-scan** — notably more repeatable than the
+Laplacian-variance run's 720-then-784 result. Monitor-phase noise floor and
+jolt detection behavior both still worked correctly with the new metric.
+
+**Run 2026-07-22, later still — 5 repeated convergence trials, a real
+success-rate number.** Ran `af-hillclimb-prototype.py` 5 times back-to-back
+(`--monitor-seconds 0`, convergence only) against the same wall scene:
+converged positions were `[720, 704, 720, 704, 720]` — mean 713.6, stddev
+7.8, i.e. **every single trial landed within one fine-step (16 units, ~1.6%
+of the full range) of the same point**, alternating between two adjacent
+grid samples of what the earlier visual check confirmed is the real sharp
+plateau. 5/5 "success" by the obvious definition (converged near the known-
+good region, no wild outliers, no failures to converge). One real
+operational finding along the way, not about the algorithm: the first
+attempt at this run hit a robustness gap — an external `timeout 60` killed
+a slow trial via `SIGTERM`, which bypasses Python's `finally:` cleanup
+(unlike `SIGINT`), leaving the background `cam` process holding the camera
+device open and breaking the next trial with "no frames arrived". Not a bug
+in the AF logic itself, but worth remembering for any future orchestration
+around this script: give it enough time budget, and don't rely on an
+external hard-kill for normal-path cleanup.
+
 **Done when:** the tool reliably converges focus across multiple real scenes
 with a documented, repeatable success rate, **and** demonstrates stable
 continuous operation (re-scans when the scene/focus genuinely changes, stays
 quiet on a static scene) over an extended run, not just a single convergence
-— **reached for one scene, one run of each condition** (quiet-hold and
-jolt-recovery both demonstrated). **Not yet done**: multiple repeated runs
-for a real success-rate number, multiple distinct scenes beyond the one wall
-scene, and the still-open items below.
+— **reached for one scene**: 5/5 repeated convergence trials landed within
+one fine-step of each other, using a metric validated against the actual
+images rather than trusted blindly, plus one demonstrated quiet-hold and one
+demonstrated jolt-recovery cycle. **Not yet done**: a second scene
+(particularly one *without* a large overexposed glare region, to check
+whether Tenengrad's advantage here was specific to that confound or
+general), and the still-open items below.
 
 **Not yet done, natural next steps**: test AGC behavior *during* an active
 scan (not just before one); repeat with a smaller step size to see whether
-settle-time variability scales with distance; compare Laplacian variance
-against Tenengrad; make the degrade-threshold scene-relative rather than a
-fixed constant (see above); run multiple repeated trials for a real
-convergence success-rate number rather than anecdotal single runs; test
-against a genuinely changing scene (not just a scripted jolt) to validate
-the "re-scans when focus genuinely changes" half of continuous AF, which the
-jolt self-test approximates but doesn't fully substitute for.
+settle-time variability scales with distance; make the degrade-threshold
+scene-relative rather than a fixed constant (see above); test against a
+genuinely changing scene (not just a scripted jolt) and get a repeated
+success rate for jolt-recovery too (only done once so far, vs. 5 repeats for
+plain convergence); try a scene without a dominant glare region to check
+whether Tenengrad's win here generalizes; consider restricting any future
+metric to a well-exposed, textured ROI (excluding saturated regions) rather
+than the naive full-frame approach both metrics currently use, which is the
+more fundamental fix the glare-region finding points at.
 
 ### Phase 2 — in-tree `soft.mojom` + `SwIspStats` plumbing (Option A, part 1)
 
