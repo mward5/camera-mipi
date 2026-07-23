@@ -1738,14 +1738,23 @@ on my machine."
       via a calibrated clock offset since `cam`'s own timestamps run on a different epoch than
       `/proc/uptime`): re-run confirmed `ExposureTime` identical on all 486 frames of a full
       0–960 sweep (AGC confound genuinely eliminated for a static scene, no locking needed) and
-      produced a real, non-monotonic sharpness-vs-position curve (13% spread vs. Phase 0's
-      confounded 104%, peak near position 640 — treat as a first real signal, not a calibrated
-      constant: single scene, single run, handheld not tripod-mounted). Settle-time signal is
-      still inconclusive (handshake noise likely comparable in size to any real settle effect
-      in this run). Next steps (repeat stationary, test AGC during an active scan not just
-      before one, compare metrics, build the actual hill-climb loop) are in the doc's Phase 1
-      section. PDAF context (dead end on this kernel, WIP archived in `~/work/git-ubuntu/
-      libcamera` branch `pdaf-sideband-wip`) is preserved in that doc rather than here.
+      produced a real, non-monotonic sharpness-vs-position curve. First run (handheld) had 13%
+      spread vs. Phase 0's confounded 104%, peak near position 640; **a same-day follow-up with
+      the laptop stationary against a real test scene (a wall the user demos AF against on
+      Windows) reproduced the AGC finding exactly (`ExposureTime` identical again, same value)
+      and gave a *different* peak (0–256, this scene's own real focus distance — expected, not a
+      contradiction) plus a genuinely important settle-time correction**: with handshake noise
+      removed, settle time for a constant 64-unit step ranges from instant up to ~870ms
+      depending on the specific transition, including one apparent overshoot/ringing case — the
+      earlier "≲1 frame" read from the noisy handheld run was flatly **wrong**, not just
+      imprecise. This means a real hill-climb loop can't safely use a short fixed per-step
+      delay; needs either a generous fixed delay or real settle detection (reviving the kernel
+      driver's unimplemented `GetStatus` busy signal is now a more live option, open question 5
+      in the doc). Next steps (test AGC during an active scan not just before one, check
+      whether settle time scales with step size, compare sharpness metrics, build the actual
+      hill-climb loop) are in the doc's Phase 1 section. PDAF context (dead end on this kernel,
+      WIP archived in `~/work/git-ubuntu/libcamera` branch `pdaf-sideband-wip`) is preserved in
+      that doc rather than here.
 - [ ] **Rebase `drivers/ipu-bridge` onto current real upstream, before further cleanup.**
       Its base commit (`7364894 from linux_7.0.0.orig.tar.gz`) came from an apt-source
       snapshot that's already confirmed stale: diffing it against

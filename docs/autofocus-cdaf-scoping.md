@@ -188,12 +188,22 @@ the need for Option A's plumbing work.
 
 ## Genuine unknowns (measure, don't guess)
 
-1. **Lens physical settle time after a `focus_absolute` write.** Completely
-   unmeasured — needed to pace any hill-climb loop. Measure by writing a
-   position, capturing frames in a tight burst immediately after, and finding
-   when the sharpness metric on a fixed scene stops changing / stabilizes
-   within noise. Test at multiple step sizes (small vs. full-range jumps),
-   since settle time plausibly scales with move distance.
+1. **Lens physical settle time after a `focus_absolute` write.**
+   **Measured 2026-07-22** (see Phase 1's stationary re-run below) — and the
+   answer is more complicated than a single number. For a constant 64-unit
+   step, observed settle time ranged from effectively instant up to ~870ms
+   depending on the specific transition, with at least one transition
+   showing an overshoot/ringing pattern before settling. Not simply
+   proportional to step size (step size was held constant across the whole
+   test) — plausibly genuine position-dependent VCM mechanical behavior. A
+   fixed short per-step delay is not a safe design for a real hill-climb;
+   see Phase 1's writeup for the full data and the practical implication
+   (settle-detection via consecutive-stable-frames, not a fixed delay, is
+   the safer design — possibly reviving the kernel driver's unimplemented
+   `GetStatus` busy signal, open question 5). **Not yet tested**: whether
+   settle time actually scales with step size (only 64-unit steps tried so
+   far) or whether the variability is purely transition/position-specific
+   regardless of distance moved.
 2. **Which sharpness metric actually works on real frames from this sensor.**
    Candidates: Laplacian variance, Tenengrad (gradient magnitude), or a metric
    matching what `SwStatsCpu`'s existing sparse sampling could cheaply support.
@@ -364,26 +374,99 @@ Result, sweeping 0–960 (step 64, ~1s hold/position, 486 frames, 669MB, in
   run, laptop handheld/resting rather than tripod-mounted, 800×600 not full
   resolution. It's evidence the metric and methodology now work, not yet a
   calibrated "this is where this scene focuses" constant.
-- **Settle-time signal, inconclusive so far**: inspecting individual bursts'
-  frame-by-frame sharpness (`analysis.csv`'s `frames_since_change` column),
-  most sampled positions (e.g. 640, 960) look stable from the first frame
-  after the move with no visible multi-frame ramp, while others (e.g. 192)
-  show swings of comparable size throughout the whole ~1s hold — plausibly
-  handheld camera shake rather than lens settling, but not separated from a
-  genuine settle effect in this run. Tentative read: for a 64-unit step,
-  settle time is likely ≲1 frame interval (~40ms) or is being masked by
-  shake noise of similar magnitude — **not a confident number yet**. A
-  repeat with the laptop resting stationary (eliminating handshake as a
-  noise source) and varying step size (small vs. full-range jumps, per
-  unknown 1's original framing) would give a real answer.
+- **Settle-time signal, inconclusive in this run** (handheld/resting laptop,
+  not deliberately stationary) — see the corrected re-run below, done the
+  same day once the laptop was set up stationary against a real test scene.
+  The tentative "≲1 frame" read from this run turned out to be **wrong**,
+  not just imprecise — worth recording plainly since it would have been an
+  easy wrong number to carry forward into Phase 3's tuning constants.
 
-**Not yet done, natural next steps**: repeat with the camera stationary to
-separate settle time from handshake noise; test AGC behavior *during* an
-active scan (not just before one); try a finer step size and/or multiple
-repeated sweeps to get a more confident peak-position estimate and check for
-local-maxima noise in the metric; compare Laplacian variance against
-Tenengrad on the same dataset (unknown 2 asked for a comparison, only one
-metric has been tried so far).
+**Run 2026-07-22, same day, corrected — laptop stationary, aimed at a wall
+scene the user has used to demo AF on Windows** (`~/work/af-sweep-data/
+run3-stationary`, same script/params, 0–960 step 64, 26 frames/position).
+With handshake noise removed, the settle-time picture changes completely:
+
+- **AGC finding reproduced exactly**: `ExposureTime` again identical
+  (`39184`) on every frame of the whole sweep, same value as the previous
+  run despite a different scene — further confirmation this is a solid,
+  repeatable result, not a fluke.
+- **A different peak, as expected for a different scene**: this wall sits
+  best-focused around position 0–256 (flat, sharpest, mean ~1880) with a
+  general decline through 320–960 (down to ~1690) — a real, physically
+  sensible result (a nearer/farther wall than whatever was in frame during
+  the first stationary run's scene), not a contradiction of the earlier
+  peak-near-640 result. Confirms position→sharpness mapping is genuinely
+  scene/distance-dependent, as it should be — there's no universal "best"
+  `focus_absolute` value, which is exactly why a real hill-climb algorithm
+  is needed rather than a fixed default.
+- **Settle time, corrected and quantified**: per-position settle-frame index
+  (first frame after which all remaining frames in that position's burst
+  stay within 2% of the position's final mean), computed programmatically
+  from `analysis.csv`:
+  ```
+  pos    settle_frame   ~ms     note
+  0- 256, 384, 448        0       0    (sharpness barely differs from prior
+                                        position - nothing to detect, not
+                                        evidence of a fast physical settle)
+  320                    22    ~873    slow, two-stage: flat -> partial drop
+                                        -> further drop -> partial RECOVERY
+                                        near the end of the 1s hold
+  512                    21    ~834    same two-stage-then-recovery pattern
+  576                    12    ~476    two-stage drop, no recovery this time
+  640                     4    ~159    fast-ish, but still a real multi-frame
+                                        transition, not instant
+  704                    17    ~675    dramatic: jumps well ABOVE both the
+                                        previous and final steady value for
+                                        several frames before dropping back
+                                        down - looks like real overshoot/
+                                        ringing, not just noise
+  768                     3    ~119    fast settle
+  832-960                 0       0    (again, minimal sharpness change to
+                                        detect)
+  ```
+  **The earlier "≲1 frame" read from the noisy handheld run was wrong, not
+  just imprecise.** For the same 64-unit step size, settle time ranges from
+  effectively instant up to ~870ms depending on the specific transition, with
+  at least one case (704) showing what looks like genuine mechanical
+  overshoot/ringing before settling — a real design hazard: a hill-climb
+  loop that samples immediately (or even a few hundred ms) after a move can
+  read a transiently wrong sharpness value, especially right after a larger
+  jump. Since step size was held constant (64) across all of these, the
+  variability isn't explained by move distance alone — plausibly genuine
+  VCM mechanical behavior (backlash/hysteresis/resonance can be
+  position-dependent for voice-coil motors), though this run can't fully
+  rule out some of it being a fixed IPU6/libcamera pipeline latency riding
+  along with the true physical delay (the correlation is between a
+  `v4l2-ctl` write's timestamp and a frame's arrival timestamp, which
+  necessarily includes some capture-pipeline latency on top of any real lens
+  motion) — a constant pipeline latency alone wouldn't explain why some
+  transitions show `settle_frame=0` and others ~870ms, so the *variability*
+  is real regardless, even if the *absolute* numbers have some fixed offset
+  baked in.
+  **Practical takeaway for Phase 3's tuning constants**: this run's
+  `HOLD_TIME=1.0s` provided enough margin for every observed transition to
+  fully settle (even the slowest, ~870ms, stabilized before the 1s window
+  ended) — but that's uncomfortably close to the observed worst case, not a
+  comfortable safety margin. A real hill-climb loop should not use a fixed
+  short per-step delay; it should either use a generous fixed delay (on the
+  order of 1s+, expensive for scan speed) or — better — watch for N
+  consecutive frames within a tolerance band before trusting a sample,
+  exactly the kind of settle-detection logic `docs/vcm-investigation-
+  lc898217.md`'s undocumented `GetStatus` protocol was hypothesized to help
+  with (open question 5 above) — this result makes that kernel-driver
+  extension look more worth doing than "conditional/deferred," though still
+  not proven necessary until a real hill-climb is built and a fixed-delay
+  approach is shown to be too slow or unreliable in practice.
+
+**Not yet done, natural next steps**: test AGC behavior *during* an active
+scan (not just before one, which both runs so far tested); repeat the
+settle-time measurement with a smaller step size to see whether variability
+scales with distance or is truly position/transition-specific; compare
+Laplacian variance against Tenengrad on the same dataset (unknown 2 asked
+for a comparison, only one metric has been tried so far); investigate
+position 704's overshoot pattern specifically, ideally with finer time
+resolution (higher frame rate or a smaller/faster stream config) than this
+~25fps 800×600 setup provides.
 
 **Files touched:** `scripts/af-continuous-sweep.sh` (harness) and
 `scripts/af-analyze-continuous.py` (analysis) — landed in `scripts/`, not a
@@ -502,17 +585,17 @@ reliability (converges on real changes, stays quiet on a static scene).
    actually starts, not now.
 5. **Whether to ever expose the kernel driver's undocumented `GetStatus`/
    `GetPos` protocol (reg `0x0A`) as a real busy/settle signal**, vs. relying
-   on Phase 0's fixed empirically-measured delay. Only worth pursuing if
-   Phase 0 finds settle time is highly variable and a fixed delay can't safely
-   cover it — a kernel-driver change, separate scope from the userspace/IPA
-   phases above. Deferred/conditional, not committed. **Still open** — not yet
-   revisited in light of #1's continuous-AF decision, which may raise the
-   stakes here: a continuous loop re-scanning periodically for the life of a
-   session hits this path far more often than a one-shot trigger would, so a
-   flaky fixed-delay assumption is more likely to surface as visible bad
-   behavior (premature or late re-scans) than it would have under the
-   original single-shot scoping. Worth deciding once Phase 0 data exists,
-   not before.
+   on a fixed empirically-measured delay. Was "only worth pursuing if settle
+   time proves highly variable" — **settle time was measured 2026-07-22
+   (unknown 1 above) and is confirmed highly variable** (effectively instant
+   to ~870ms for the same 64-unit step size, with at least one apparent
+   overshoot/ringing case), so this is no longer a hypothetical trigger
+   condition, it's met. **Still not committed** — a fixed delay generous
+   enough to cover the observed worst case (comfortably over ~1s, e.g. with
+   margin) is a legitimate, simpler alternative to a kernel-driver change,
+   just a slower one; the real decision is a speed/complexity tradeoff to
+   make once Phase 1's actual hill-climb loop is built and it's clear
+   whether fixed-delay pacing is fast enough to feel responsive.
 6. **10-bit vs. 11-bit DAC range ambiguity** (open in
    `docs/vcm-investigation-lc898217.md`, distinct from but related to unknown
    3 above) — Phase 0's sweep should incidentally surface clipping/wraparound
