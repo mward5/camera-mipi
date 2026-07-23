@@ -507,19 +507,40 @@ the need for Option A's plumbing work.
    the peak) rather than one sharp maximum. A grid search on a nearly-flat
    function will legitimately land on different nearby points from run to
    run, driven by ordinary frame-to-frame noise, because there's no strong
-   signal pulling it to one exact spot. **Not yet resolved**: whether this
-   is specific to the wall scene (plausible — it's a flat surface viewed
-   straight-on, unlike the futon scene's 43% dynamic range and clear
-   single peak) or a more general property worth designing around;
-   repeating this same 5-trial test on the futon scene would settle it and
-   is a natural next step.
+   signal pulling it to one exact spot. **Resolved 2026-07-23 — confirmed
+   scene-specific, not a general property.** Repeated the identical 5-trial
+   locked test on the futon scene (camera was already pointed at it from
+   earlier testing — confirmed by capturing and looking at a frame before
+   running, rather than assuming): positions `[544, 528, 512, 512, 512]`,
+   **mean 521.6, stddev 12.8, range 32** — dramatically tighter than the
+   wall scene's locked result (stddev 104, range 256), and roughly
+   comparable to the wall scene's *unlocked* (contamination-tight) result,
+   this time for the right reason. This confirms the hypothesis cleanly:
+   convergence consistency tracks how strong the scene's real focus signal
+   is, not anything about the lock or the search algorithm. A scene with a
+   genuine, strong peak (futon, 43% dynamic range) converges tightly and
+   reliably; a scene with only a shallow, broad plateau (wall, 4% dynamic
+   range) legitimately has more run-to-run scatter within that plateau,
+   correctly and unavoidably, because there's no strong signal to pull the
+   search to one exact point. Not a defect to fix — a real, now-quantified
+   property of "how well this converges" that depends on the scene, worth
+   remembering when judging any future convergence-consistency number in
+   isolation without also characterizing the scene's own dynamic range.
+   Secondary, unexplained observation worth flagging rather than chasing
+   further right now: converged sharpness *values* declined somewhat across
+   the 5 trials (15.0M, 15.1M, 13.5M, 13.3M, 13.1M, ~3 minutes wall-clock
+   total) — plausibly natural lighting drift, or session-to-session
+   variation in exactly what the ~3s pre-warm locks onto (already known to
+   vary somewhat between sessions on the wall scene), neither confirmed.
+   Doesn't affect the position-consistency conclusion above, which is a
+   relative comparison within each trial.
 
    **Not yet done**: the eventual Phase 3 `IPAContext`-coordinated
    pause/resume for the real in-tree algorithm (this YAML-swap approach is
    Phase-1-only, deliberately blunt, and only safe because it targets the
    local dev build, never the system-installed package); making
-   `--degrade-threshold` scene-relative as noted above; repeating the
-   locked validation on the futon scene.
+   `--degrade-threshold` scene-relative as noted above; understanding the
+   converged-value decline across repeated futon trials noted just above.
 
 ## Phased plan
 

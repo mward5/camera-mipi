@@ -1822,9 +1822,15 @@ on my machine."
       (stddev 7.8) — not a regression, the opposite: the old tight clustering was itself a
       contamination artifact, and with it removed this wall scene's true focus response looks like
       a broad, shallow plateau (matching the clean sweep's 4% total spread) rather than one sharp
-      peak, so a grid search legitimately lands on different nearby points run to run. Unconfirmed
-      whether that's specific to this flat, straight-on wall scene or more general — repeating on
-      the futon scene (43% dynamic range, clear single peak in the unlocked sweep) would settle it.
+      peak, so a grid search legitimately lands on different nearby points run to run. **Resolved,
+      same day**: repeated the identical 5-trial locked test on the futon scene (43% dynamic range,
+      clear single peak) — positions `[544, 528, 512, 512, 512]`, stddev 12.8, range 32, dramatically
+      tighter than the wall scene's stddev 104. Confirms convergence consistency tracks the scene's
+      real focus signal strength, not anything about the lock or search algorithm — not a defect, a
+      quantified, scene-dependent property to remember when judging any future convergence number in
+      isolation. Secondary, unexplained observation: converged sharpness *values* declined somewhat
+      across the 5 futon trials (15.0M→13.1M over ~3 min) — plausibly lighting drift or session-to-
+      session pre-warm variation, neither confirmed, doesn't affect the position-consistency finding.
       PDAF context (dead end on this kernel, WIP
       archived in `~/work/git-ubuntu/libcamera` branch `pdaf-sideband-wip`) is preserved in
       that doc rather than here.
