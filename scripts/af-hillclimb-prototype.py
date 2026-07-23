@@ -44,9 +44,25 @@ constants before Phase 3 ports it into a real src/ipa/simple/algorithms/
 af.cpp. Full-frame captures are written to OUTDIR and NOT cleaned up
 automatically; a real (in-process, no-disk-round-trip) implementation is
 what Phase 3 is for.
+
+AGC locking (2026-07-23, see docs/autofocus-cdaf-scoping.md "Decided
+2026-07-23: lock, don't normalize" and "Built and validated"): confirmed
+gain-driven sharpness noise is roughly the same size as the real focus
+signal (pooled r=0.705 between gain and sharpness at fixed focus), and an
+external v4l2-ctl write to analogue_gain gets overwritten by Agc within a
+frame - unlike focus_absolute, which nothing else touches. So --lock-agc
+(on by default) mirrors what scripts/af-continuous-sweep.sh already does:
+pre-warm with real Agc briefly to pick a starting exposure/gain, then
+remove `Agc:` from the *local dev build's* tuning file (never the
+system-installed package Snapshot uses, so this never affects normal
+camera use) and re-assert the pre-warmed values. Restored on exit; a
+self-healing check at startup detects and git-checkouts a YAML left
+mid-edit by a prior run that got SIGKILLed (confirmed happening in
+practice while building the sweep-script version of this).
 """
 import argparse
 import csv
+import re
 import subprocess
 import sys
 import time
@@ -99,6 +115,77 @@ def set_focus(lens_dev: str, pos: int):
     return pos
 
 
+def get_ctrl(dev: str, name: str) -> int:
+    out = subprocess.run(["v4l2-ctl", "-d", dev, f"--get-ctrl={name}"],
+                          capture_output=True, text=True, check=True).stdout
+    return int(re.search(r"(\d+)\s*$", out).group(1))
+
+
+def set_ctrls(dev: str, **ctrls):
+    arg = ",".join(f"{k}={v}" for k, v in ctrls.items())
+    subprocess.run(["v4l2-ctl", "-d", dev, "-c", arg], check=True, capture_output=True)
+
+
+def yaml_has_agc(yaml_path: Path) -> bool:
+    return any(line.rstrip("\n") == "  - Agc:" for line in yaml_path.open())
+
+
+def restore_yaml_if_broken(yaml_path: Path, libcam_src_root: Path, log_print):
+    """Self-healing: a prior run killed via SIGKILL (e.g. an enclosing
+    `timeout` escalating past SIGTERM, which can't be trapped/caught) can
+    leave this file mid-edit with Agc missing. Confirmed happening in
+    practice 2026-07-23 while building the sweep-script version of this
+    lock. Fix it before doing anything else rather than silently running
+    "locked" when the caller didn't ask for that."""
+    if yaml_has_agc(yaml_path):
+        return
+    log_print(f"WARNING: {yaml_path} is missing Agc (likely left over from "
+              "an interrupted previous run) - restoring via git checkout.")
+    subprocess.run(["git", "-C", str(libcam_src_root), "checkout", "--",
+                     "src/ipa/simple/data/s5k3j1.yaml"], check=True)
+    if not yaml_has_agc(yaml_path):
+        raise RuntimeError(f"git checkout didn't restore Agc in {yaml_path} "
+                            "- needs manual attention")
+
+
+def lock_agc(sensor_dev: str, cam_bin: str, width: int, height: int, env: dict,
+             outdir: Path, prewarm_time: float, yaml_path: Path, log_print):
+    """Pre-warms with real Agc, then removes it from the tuning file and
+    freezes exposure/gain at whatever Agc picked. Returns the backup path
+    (caller restores it in a finally block) or None if nothing was changed."""
+    log_print(f"LOCK_AGC: pre-warming Agc for {prewarm_time}s to pick a starting exposure/gain...")
+    prewarm_log = (outdir / "prewarm.log").open("w")
+    proc = subprocess.Popen(
+        [cam_bin, r"--camera=\_SB_.PC00.LNK0",
+         "-s", f"width={width},height={height},role=viewfinder", "--capture"],
+        stdout=prewarm_log, stderr=subprocess.STDOUT, env=env)
+    time.sleep(prewarm_time)
+    proc.send_signal(2)
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    prewarm_log.close()
+
+    exposure = get_ctrl(sensor_dev, "exposure")
+    gain = get_ctrl(sensor_dev, "analogue_gain")
+    log_print(f"Locking at exposure={exposure} analogue_gain={gain} "
+              f"(removing Agc from {yaml_path} for this run)")
+
+    backup = outdir / "s5k3j1.yaml.orig-backup"
+    backup.write_text(yaml_path.read_text())
+    lines = [l for l in yaml_path.read_text().splitlines(keepends=True)
+             if l.rstrip("\n") != "  - Agc:"]
+    yaml_path.write_text("".join(lines))
+    if yaml_has_agc(yaml_path):
+        raise RuntimeError(f"Failed to remove Agc from {yaml_path}")
+
+    # Agc removed means nothing drives these controls anymore - re-assert
+    # the pre-warmed values explicitly in case the sensor reset on re-open.
+    set_ctrls(sensor_dev, exposure=exposure, analogue_gain=gain)
+    return backup
+
+
 class FrameWatcher:
     """Polls for the next expected cam output frame by filename, in order.
 
@@ -119,7 +206,17 @@ class FrameWatcher:
 
     def next_frame(self, timeout: float = 3.0):
         """Blocks for the next frame, returns (seq, wall_time, sharpness) or
-        None on timeout."""
+        None on timeout.
+
+        cam occasionally drops a frame's file write entirely (confirmed
+        2026-07-23: a 4-frame gap in an otherwise-continuous sequence, cam
+        itself kept streaming fine). The naive version of this only ever
+        waited on self.next_seq and never advanced past a frame that would
+        never arrive - one missing file permanently deadlocked every
+        subsequent call, silently turning the rest of a run into all-zero
+        readings. If the expected frame doesn't show up in time, scan a
+        little ahead for a later one that did, and skip forward to it.
+        """
         deadline = time.monotonic() + timeout
         path = self._path_for(self.next_seq)
         while time.monotonic() < deadline:
@@ -138,6 +235,13 @@ class FrameWatcher:
                 self.next_seq += 1
                 return seq, time.monotonic(), sh
             time.sleep(self.poll_interval)
+        # Timed out on self.next_seq specifically - check whether cam moved
+        # on without it (a dropped frame) rather than stalling entirely.
+        for lookahead in range(1, 50):
+            candidate = self.next_seq + lookahead
+            if self._path_for(candidate).exists():
+                self.next_seq = candidate
+                return self.next_frame(timeout=timeout)
         return None
 
     def drain_stale(self):
@@ -223,6 +327,12 @@ def main():
     ap.add_argument("--height", type=int, default=600)
     ap.add_argument("--cam", default=str(Path.home() / "work/git-ubuntu/libcamera/build/src/apps/cam/cam"))
     ap.add_argument("--libcam", default=str(Path.home() / "work/git-ubuntu/libcamera/build"))
+    ap.add_argument("--lock-agc", dest="lock_agc", action="store_true", default=True,
+                     help="lock exposure/gain before scanning, matching "
+                          "af-continuous-sweep.sh (default: on)")
+    ap.add_argument("--no-lock-agc", dest="lock_agc", action="store_false")
+    ap.add_argument("--prewarm-time", type=float, default=4.0,
+                     help="seconds to let real Agc pick a starting exposure/gain before locking it")
     args = ap.parse_args()
 
     outdir = Path(args.outdir)
@@ -244,7 +354,8 @@ def main():
 
     mdev = find_ipu6_media_device()
     lens_dev = resolve_entity(mdev, "lc898217 1-0072")
-    log_print(f"MDEV={mdev} lens={lens_dev}")
+    sensor_dev = resolve_entity(mdev, "s5k3j1 1-0010")
+    log_print(f"MDEV={mdev} lens={lens_dev} sensor={sensor_dev}")
 
     import os
     env = os.environ.copy()
@@ -252,21 +363,42 @@ def main():
     env["LIBCAMERA_IPA_MODULE_PATH"] = f"{args.libcam}/src/ipa/simple"
     env.setdefault("LIBCAMERA_DISABLE_IPU6_PDAF", "1")
 
+    # Tuning YAML lives in the source tree, not the build dir (LIBCAM's
+    # parent is the source root - confirmed via IPAProxy's own "Using
+    # tuning file ..." log line, same as af-continuous-sweep.sh).
+    libcam_src_root = Path(args.libcam).parent
+    yaml_path = libcam_src_root / "src/ipa/simple/data/s5k3j1.yaml"
+    restore_yaml_if_broken(yaml_path, libcam_src_root, log_print)
+
     set_focus(lens_dev, 0)
 
-    camlog = (outdir / "capture.log").open("w")
-    cam_proc = subprocess.Popen(
-        [args.cam, r"--camera=\_SB_.PC00.LNK0",
-         "-s", f"width={args.width},height={args.height},role=viewfinder",
-         "--capture",
-         f"--file={outdir / 'frame-#.ppm'}"],
-        stdout=camlog, stderr=subprocess.STDOUT, env=env)
-
+    # yaml_backup/cam_proc are set inside the try below (locking can itself
+    # fail partway, after modifying the YAML but before returning) - the
+    # try/finally has to cover locking too, not just the main capture, or a
+    # failure during lock_agc() would leave the YAML broken with no cleanup
+    # for *this* run (the startup self-healing check above only catches it
+    # on the *next* run).
+    yaml_backup = None
+    cam_proc = None
+    camlog = None
+    log_rows = []
     try:
-        watcher = FrameWatcher(outdir)
-        log_rows = []
+        if args.lock_agc:
+            yaml_backup = lock_agc(sensor_dev, args.cam, args.width, args.height,
+                                    env, outdir, args.prewarm_time, yaml_path, log_print)
 
-        log_print(f"Waiting for stream startup + {args.agc_settle_time}s AGC settle...")
+        camlog = (outdir / "capture.log").open("w")
+        cam_proc = subprocess.Popen(
+            [args.cam, r"--camera=\_SB_.PC00.LNK0",
+             "-s", f"width={args.width},height={args.height},role=viewfinder",
+             "--capture",
+             f"--file={outdir / 'frame-#.ppm'}"],
+            stdout=camlog, stderr=subprocess.STDOUT, env=env)
+        watcher = FrameWatcher(outdir)
+
+        settle_desc = ("stream/lens settle, AGC locked" if args.lock_agc
+                       else "stream startup + AGC settle")
+        log_print(f"Waiting for {settle_desc} ({args.agc_settle_time}s)...")
         # Wait for the first frame to confirm streaming actually started.
         fr = watcher.next_frame(timeout=10.0)
         if fr is None:
@@ -336,12 +468,20 @@ def main():
                    f"({'as expected from the jolt' if rescans >= 1 else 'NONE - check jolt/threshold tuning'}).")
 
     finally:
-        cam_proc.send_signal(2)  # SIGINT, let it flush
-        try:
-            cam_proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            cam_proc.kill()
-        camlog.close()
+        if cam_proc is not None:
+            cam_proc.send_signal(2)  # SIGINT, let it flush
+            try:
+                cam_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                cam_proc.kill()
+        if camlog is not None:
+            camlog.close()
+
+        if yaml_backup is not None:
+            yaml_path.write_text(yaml_backup.read_text())
+            yaml_backup.unlink()
+            log_print(f"Restored {yaml_path} (Agc re-enabled).")
+
         subprocess.run(["systemctl", "--user", "start", "pipewire.socket",
                          "pipewire", "wireplumber"], capture_output=True)
 

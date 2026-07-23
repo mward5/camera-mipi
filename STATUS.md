@@ -1728,9 +1728,9 @@ on my machine."
       consumes a small subset (black level, AWB gains, a 3x3 CCM, gamma) — don't expect to
       consume the `.aiqb` wholesale, just mine those specific fields once the format is known.
 - [ ] **Real closed-loop autofocus for the rear camera — scoped 2026-07-22, working hill-climb
-      prototype validated end-to-end (5/5 repeatable convergence) against real hardware,
-      in-tree libcamera integration (Phase 2/3) not yet started.** **2026-07-23 correction, read
-      first**: every AGC-related claim below dated 2026-07-22 (the "AGC confound eliminated, no
+      prototype validated against real hardware with AGC locking now built and confirmed working
+      (2026-07-23), in-tree libcamera integration (Phase 2/3) not yet started.** **2026-07-23
+      correction, read first**: every AGC-related claim below dated 2026-07-22 (the "AGC confound eliminated, no
       locking needed" conclusion in particular) was measured against a local libcamera dev build
       that hadn't been recompiled since 2026-05-26 and was silently missing the 2026-07-22 AGC
       gain-floor fix (`75b4474`) — gain reading exactly `1.000000` on every single frame all day
@@ -1808,9 +1808,24 @@ on my machine."
       presumably recur if WirePlumber (re)starts while something else holds `/dev/media1`; no
       permanent fix (e.g. a startup retry/backoff in WirePlumber's camera monitor, or ensuring
       test scripts never leave `cam` running across a wireplumber restart) has been
-      investigated. Still open on the AF side: repeated-trial/jolt testing on the
-      second scene, AGC-during-an-active-scan, exposure/gain logging in the hill-climb trace,
-      and the eventual Phase 2/3 in-tree port. PDAF context (dead end on this kernel, WIP
+      investigated. **AGC lock built and validated for both scripts, 2026-07-23**:
+      `af-continuous-sweep.sh` and `af-hillclimb-prototype.py` both now default to `--lock-agc`
+      (pre-warm with real Agc briefly, remove `Agc:` from the local dev build's tuning file only,
+      re-assert the pre-warmed exposure/gain, restore on exit, self-healing if a prior run got
+      SIGKILLed mid-edit). Locked sweep spread dropped to 4% (from 7–16% contaminated); locked
+      hill-climb converged near the same region the clean sweep found and held within 0.5–1.8%
+      during monitoring, the tightest quiet-hold result yet. Also fixed a real, separate bug
+      surfaced while testing this: `cam` occasionally drops a frame's file write, and the old
+      frame-watcher deadlocked forever waiting for that exact missing sequence number — now skips
+      ahead. **One genuinely new, unresolved finding**: 5 repeated locked convergence trials landed
+      far less tightly (`[720, 624, 864, 880, 880]`, stddev 104) than the earlier *unlocked* result
+      (stddev 7.8) — not a regression, the opposite: the old tight clustering was itself a
+      contamination artifact, and with it removed this wall scene's true focus response looks like
+      a broad, shallow plateau (matching the clean sweep's 4% total spread) rather than one sharp
+      peak, so a grid search legitimately lands on different nearby points run to run. Unconfirmed
+      whether that's specific to this flat, straight-on wall scene or more general — repeating on
+      the futon scene (43% dynamic range, clear single peak in the unlocked sweep) would settle it.
+      PDAF context (dead end on this kernel, WIP
       archived in `~/work/git-ubuntu/libcamera` branch `pdaf-sideband-wip`) is preserved in
       that doc rather than here.
 - [ ] **Rebase `drivers/ipu-bridge` onto current real upstream, before further cleanup.**

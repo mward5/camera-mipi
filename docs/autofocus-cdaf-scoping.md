@@ -451,14 +451,75 @@ the need for Option A's plumbing work.
    running the next invocation "locked" when the caller didn't ask for
    that.
 
-   **Not yet done**: the same lock hasn't been wired into
-   `af-hillclimb-prototype.py` yet (only the sweep script) — the actual
-   hill-climb/metric-comparison/repeated-trial results from earlier are
-   still not re-validated under lock, only the raw sweep shape has been.
-   Also not yet built: the eventual Phase 3 `IPAContext`-coordinated
+   **Wired into `af-hillclimb-prototype.py` too, 2026-07-23, with a real
+   bug found and fixed along the way.** Same mechanism as the sweep script
+   (`--lock-agc`, on by default; pre-warm, remove `Agc:`, re-assert,
+   restore in a `finally`; self-healing check at startup), plus the same
+   "cover the lock itself with the cleanup path" refinement — in the
+   Python version, `lock_agc()` can itself fail partway (after editing the
+   YAML, before returning), so the `try/finally` was restructured to wrap
+   locking too, not just the main capture, otherwise a failure during
+   locking would leave *that run* with no cleanup (the startup self-heal
+   only catches it on the *next* run).
+
+   Smoke-testing this surfaced a real, separate, pre-existing bug in
+   `FrameWatcher`, unrelated to locking: `cam` occasionally drops a frame's
+   file write entirely (confirmed - a 4-frame gap in an otherwise-
+   continuous sequence, `cam` itself kept streaming fine throughout). The
+   watcher only ever waited on the *exact* next expected sequence number,
+   so one permanently-missing file deadlocked every subsequent call
+   forever — silently turning the rest of a run into all-zero readings
+   with no error (this is exactly what happened on the first smoke test:
+   fine-scan positions 800–1000 all read `sharpness=0.0, frames=0`).
+   Fixed: on a timeout, scan a short distance ahead for a later frame that
+   did arrive, and skip forward to it rather than waiting on a frame that
+   will never come.
+
+   **Full locked run, default settings**: converged at position 720
+   (sharpness 10522620), landing in the same broad good region the clean
+   sweep found (peak at 640). Monitor phase held within 0.5–1.8% of
+   baseline for the full 10s (vs. much larger, noisier swings in every
+   unlocked run) — the tightest quiet-hold result of the whole project so
+   far. One notable side effect: the scripted jolt (to position 0) **no
+   longer triggered a re-scan** at the 5% threshold — not a bug, a
+   consequence of the measurement finally being accurate: position 0 in
+   this locked run read only ~1.6% below the converged peak, consistent
+   with the clean sweep's real ~4% total dynamic range for this scene.
+   Earlier "jolt clearly detected" results were partly riding on
+   contamination-inflated apparent differences; the true signal is smaller
+   than it looked. Reinforces the earlier recommendation to make
+   `--degrade-threshold` scene-relative rather than a fixed constant — 5%
+   is now *too large* for this scene's true dynamic range, the opposite
+   problem from the original unlocked run where 10% was too large for a
+   *contamination-inflated* range that looked bigger than it was.
+
+   **5 repeated locked convergence trials, a more honest picture than the
+   earlier unlocked result**: positions `[720, 624, 864, 880, 880]` — mean
+   793.6, stddev 104.0, range 256. Notably *less* tight than the earlier
+   unlocked repeated-trial result (`[720, 704, 720, 704, 720]`, stddev
+   7.8) — at first glance this looks like locking made things worse, but
+   it's the opposite: the earlier tight clustering was itself an artifact
+   of gain noise happening to correlate similarly across nearby trials
+   under a *contaminated* metric, not evidence of a sharp, well-defined
+   peak. With contamination removed, what's left is the *true* shape of
+   this scene's focus response — and the clean sweep already showed it's a
+   broad, shallow plateau (4% total spread, position 0 barely worse than
+   the peak) rather than one sharp maximum. A grid search on a nearly-flat
+   function will legitimately land on different nearby points from run to
+   run, driven by ordinary frame-to-frame noise, because there's no strong
+   signal pulling it to one exact spot. **Not yet resolved**: whether this
+   is specific to the wall scene (plausible — it's a flat surface viewed
+   straight-on, unlike the futon scene's 43% dynamic range and clear
+   single peak) or a more general property worth designing around;
+   repeating this same 5-trial test on the futon scene would settle it and
+   is a natural next step.
+
+   **Not yet done**: the eventual Phase 3 `IPAContext`-coordinated
    pause/resume for the real in-tree algorithm (this YAML-swap approach is
    Phase-1-only, deliberately blunt, and only safe because it targets the
-   local dev build, never the system-installed package).
+   local dev build, never the system-installed package); making
+   `--degrade-threshold` scene-relative as noted above; repeating the
+   locked validation on the futon scene.
 
 ## Phased plan
 
