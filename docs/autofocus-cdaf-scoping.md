@@ -608,29 +608,82 @@ in the AF logic itself, but worth remembering for any future orchestration
 around this script: give it enough time budget, and don't rely on an
 external hard-kill for normal-path cleanup.
 
+**Run 2026-07-22, later still — second scene (no glare confound), metrics
+agree, and a real transient-disturbance finding.** User repositioned the
+camera to a normal indoor scene with real depth (a futon, a door, a cat
+tree) and no dominant overexposed hotspot, specifically to test whether
+Tenengrad's win over Laplacian variance on the wall scene generalizes or was
+specific to that glare problem.
+
+- `af-continuous-sweep.sh` + `af-analyze-continuous.py`: a textbook clean
+  result — sharpness rises smoothly from position 0 to a peak at 448, falls
+  away smoothly through 960, only 1 sign change, 43% dynamic-range spread
+  (much larger than the wall scene's 11–16% — this scene has real depth
+  variation to work with). `af-compare-metrics.py`: **Laplacian variance and
+  Tenengrad now agree closely** (peaks at 448 and 512 respectively — one
+  fine-step apart, both clean unimodal curves) — confirming the wall scene's
+  disagreement was specific to its glare/hotspot confound, not a general
+  flaw in Laplacian variance. Visual spot-check (converted representative
+  frames to PNG, looked directly): position 0 and 960 are visibly blurry,
+  448 is clearly sharp — matches both metrics.
+- Ran `af-hillclimb-prototype.py` (Tenengrad) against this scene: coarse
+  scan found a rising trend toward the high end, peaking at 864 (14.3M) —
+  but the **fine scan's own revisit of position 864, moments later, read
+  only 11.85M**, ~20% lower than the coarse pass's reading of the *same
+  nominal position*. Converged at 768 (11.1M) — a real position, but
+  noticeably below the coarse scan's own peak reading. Investigated by
+  pulling the actual frames from both the coarse-pass and fine-pass reads of
+  position 864 and looking at them directly: the coarse-pass frame is
+  visibly sharper (crisp chair detail, clear picture-frame edges) than the
+  fine-pass frame (soft, blurry) — a real difference, not just numeric
+  noise. **Root cause: the user confirmed they likely walked through the
+  camera's field of view during the coarse scan** — a transient scene
+  change, not a lens or metric problem. (An initial hypothesis worth
+  recording as *ruled out* rather than repeating the mistake of chasing it
+  further, per this project's own convention of documenting dead ends: VCM
+  positional hysteresis — the same commanded DAC value reproducibly landing
+  at a different physical position depending on approach direction/history —
+  was considered, since it's a real phenomenon in voice-coil actuators and
+  would have been a novel, useful finding if true. The mundane explanation
+  fits the evidence just as well and is far more likely, so this wasn't
+  pursued further, but it's worth revisiting *if* a similar discrepancy ever
+  shows up on a verified-static scene.)
+- **Real design implication, independent of the specific cause**: a coarse-
+  then-fine grid search has no defense against a single transient outlier
+  sample steering it toward the wrong region — here it cost some quality
+  (768 vs. the scene's real ~448-peak-equivalent-region for this framing)
+  but didn't fail outright, since the fine scan's own internally-consistent
+  data still picked a locally-reasonable point. A more robust design would
+  re-confirm a candidate coarse-scan winner with a second read before
+  committing to a fine-search window around it, rather than trusting a
+  single sample. Also revealed a real instrumentation gap: `hillclimb-
+  trace.csv` doesn't log exposure/gain per frame (only sharpness), which
+  would have helped distinguish "scene motion" from "AGC drift" faster
+  without needing to pull and visually compare frames by hand — worth adding
+  before the next round of testing.
+
 **Done when:** the tool reliably converges focus across multiple real scenes
 with a documented, repeatable success rate, **and** demonstrates stable
 continuous operation (re-scans when the scene/focus genuinely changes, stays
 quiet on a static scene) over an extended run, not just a single convergence
-— **reached for one scene**: 5/5 repeated convergence trials landed within
-one fine-step of each other, using a metric validated against the actual
-images rather than trusted blindly, plus one demonstrated quiet-hold and one
-demonstrated jolt-recovery cycle. **Not yet done**: a second scene
-(particularly one *without* a large overexposed glare region, to check
-whether Tenengrad's advantage here was specific to that confound or
-general), and the still-open items below.
+— **reached for two scenes now**: wall scene had 5/5 repeated convergence
+trials within one fine-step, plus quiet-hold and jolt-recovery; futon scene
+confirmed metric agreement without the glare confound and produced a real
+(if externally-disturbed) convergence run. **Not yet done**: repeated trials
+and a jolt-recovery test on the second scene (only wall scene got that
+depth of testing so far), and the still-open items below.
 
 **Not yet done, natural next steps**: test AGC behavior *during* an active
 scan (not just before one); repeat with a smaller step size to see whether
 settle-time variability scales with distance; make the degrade-threshold
-scene-relative rather than a fixed constant (see above); test against a
-genuinely changing scene (not just a scripted jolt) and get a repeated
-success rate for jolt-recovery too (only done once so far, vs. 5 repeats for
-plain convergence); try a scene without a dominant glare region to check
-whether Tenengrad's win here generalizes; consider restricting any future
-metric to a well-exposed, textured ROI (excluding saturated regions) rather
-than the naive full-frame approach both metrics currently use, which is the
-more fundamental fix the glare-region finding points at.
+scene-relative rather than a fixed constant (see above); add exposure/gain
+logging to `hillclimb-trace.csv`; add a re-confirmation read before
+committing to a fine-search window, to harden against transient disturbances
+like the one found above; repeated trials and jolt-recovery testing on the
+second scene, matching the depth already done on the wall scene; consider
+restricting any future metric to a well-exposed, textured ROI (excluding
+saturated regions) as a more fundamental robustness improvement than metric
+choice alone.
 
 ### Phase 2 — in-tree `soft.mojom` + `SwIspStats` plumbing (Option A, part 1)
 

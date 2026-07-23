@@ -1738,10 +1738,25 @@ on my machine."
       is built and works: coarse+fine search with settle detection (not a fixed delay),
       continuous monitor-and-rescan (not converge-and-stop, per the "zero app cooperation"
       decision), validated with 5 repeated convergence trials landing within one fine-step of
-      each other and a working jolt-detect-recover cycle. Still open: a second test scene,
-      AGC-during-an-active-scan, and the eventual Phase 2/3 in-tree port. PDAF context (dead
-      end on this kernel, WIP archived in `~/work/git-ubuntu/libcamera` branch
-      `pdaf-sideband-wip`) is preserved in that doc rather than here.
+      each other and a working jolt-detect-recover cycle. **Confirmed on a second scene**
+      (futon/door/cat-tree, no glare confound): Laplacian variance and Tenengrad now agree
+      closely, confirming the wall scene's metric disagreement was specific to its glare
+      problem, not a general Laplacian-variance flaw. That run also caught a real coarse-vs-
+      fine-scan discrepancy at the same nominal position (~20% sharpness difference on a
+      revisit) traced to a transient scene disturbance (someone walking through frame during
+      the scan), not a hardware or algorithm bug — but it's a real robustness gap worth fixing
+      (single-sample coarse-scan winners aren't re-confirmed before committing to a fine-search
+      window). **Separately, and unrelated to the AF work itself**: the rear camera doesn't
+      currently show up in PipeWire's device list (`wpctl status`) even though the system-
+      installed libcamera enumerates it fine via `cam -l` directly — GNOME Snapshot/Camera
+      can't see the rear camera right now for that reason. Not investigated yet (deferred at
+      the user's request); most likely candidate is the many repeated `pipewire`/`wireplumber`
+      restarts every test script in this effort performs, not a libcamera source change (none
+      were made this session). Still open on the AF side: repeated-trial/jolt testing on the
+      second scene, AGC-during-an-active-scan, exposure/gain logging in the hill-climb trace,
+      and the eventual Phase 2/3 in-tree port. PDAF context (dead end on this kernel, WIP
+      archived in `~/work/git-ubuntu/libcamera` branch `pdaf-sideband-wip`) is preserved in
+      that doc rather than here.
 - [ ] **Rebase `drivers/ipu-bridge` onto current real upstream, before further cleanup.**
       Its base commit (`7364894 from linux_7.0.0.orig.tar.gz`) came from an apt-source
       snapshot that's already confirmed stale: diffing it against
