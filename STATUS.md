@@ -1684,7 +1684,13 @@ on my machine."
       and gain hunts wildly frame-to-frame (observed swinging 1.17x–3.05x with a ~1s period) —
       confirmed via live telemetry, not a regression from either fix above, pre-existing gap.
       Fixable (dampen gain step / widen hysteresis, or real flicker-period detection) but not
-      attempted; more room light sidesteps it in the meantime.
+      attempted; more room light sidesteps it in the meantime. **Confirmed on the rear camera
+      too, 2026-07-23** (see the autofocus TODO item below): same character of sustained,
+      periodic gain hunting (swinging ~2.9x–4.5x, roughly 1.5–2s per step) — and, tested
+      directly, **independent of focus state**, ruling out defocus as cause or cure. Since the
+      `Agc` algorithm code is shared between `hi556.yaml` and `s5k3j1.yaml` (`src/ipa/simple/
+      algorithms/agc.cpp`), this is one generic algorithm gap affecting both cameras, not two
+      separate bugs — still not fixed either place.
 - [x] **hi556 CCM — tuned and shipped, 2026-07-22.** Enabled `Ccm` in
       `ipa/simple/data/hi556.yaml` (was commented out). Measured against non-clipped white-paper
       captures under ~6800K room light: first pass (`R×1.034, G×0.977, B×0.991`, from two

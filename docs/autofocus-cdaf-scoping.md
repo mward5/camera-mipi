@@ -322,6 +322,37 @@ the need for Option A's plumbing work.
    simply reflect different scene/lighting conditions between the two test
    sessions. Not resolved; recorded rather than papered over.
 
+   **Direct question tested 2026-07-23: does gain stabilize once focus is
+   correct? No.** Reasonable hypothesis — this scene's overexposed glare
+   region spreads differently under blur, so defocus could plausibly
+   confuse AGC's metering. Tested directly: held at a known defocused
+   position (0) for ~48s and a known in-focus position (704, from earlier
+   convergence on this scene) for ~48s, same scene, back to back, and
+   compared gain traces frame-by-frame. **Both oscillate continuously with
+   the same character** — a repeating sawtooth pattern, roughly 4–5 steps
+   per cycle, ~1.5–2s per step, no settling in either condition (defocused:
+   27 distinct steps/48s, 12 direction reversals, range 2.94–4.50; in-focus:
+   23 steps, 10 reversals, range 2.81–4.59, slightly smaller amplitude but
+   clearly still hunting, not stable). **This rules out defocus as the
+   cause — the oscillation is present regardless of focus state**, which
+   also rules it out as something a working AF algorithm could incidentally
+   fix by converging.
+
+   This turns out to match an **already-documented, pre-existing, still-
+   unfixed gap** from the 2026-07-22 image-quality session (see `STATUS.md`,
+   `hi556` CCM entry): "the AGC algorithm has no anti-flicker handling...
+   gain hunts wildly frame-to-frame (observed swinging 1.17×–3.05× with a
+   ~1s period)" — found on the *front* camera (`hi556`) that day, not
+   previously confirmed on the rear one. Since `src/ipa/simple/algorithms/
+   agc.cpp` is shared code between `hi556.yaml` and `s5k3j1.yaml`, this is
+   one generic `Agc` algorithm bug affecting both cameras, not two separate
+   ones — it just hadn't been checked on the rear camera before today.
+   **Not an AF-specific problem to solve within this scoping effort** — it's
+   a pre-existing IPA bug that predates and is independent of any of this
+   autofocus work, but it directly explains why "wait for AGC to settle"
+   can never work as a strategy here: there's nothing to wait for, it
+   doesn't settle on its own, with or without focus.
+
    **Practical fallout, updated after the re-test above**: unknown 4 is not
    just "back to open," it now has a real, if unwelcome, answer — AGC
    genuinely does not stay out of the way during a continuous-session scan
