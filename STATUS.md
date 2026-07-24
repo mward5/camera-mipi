@@ -1800,6 +1800,26 @@ on my machine."
       headroom) while s5k3j1 sits at 59.6% — both are within normal spread for mean-based metering
       on different scene content, and the pair averages ~50%, but if the front camera reads too dark
       in practice the single knob is `kOutputLinearTarget`.
+      **Superseded same day by a per-camera knob, and CONFIRMED BY THE USER.** A single shared
+      constant turned out not to suit both sensors: at the value putting `hi556` at a proper ~50%
+      mean, `s5k3j1` clipped ~11% of the frame; at the value keeping `s5k3j1` clean, `hi556` sat at
+      ~38% and looked visibly dim. Measured A/B on one scene also showed 0.18 and 0.22 are
+      indistinguishable on `hi556` (37.8% vs 37.5%) because the ±0.2 MSV deadband absorbs a change
+      that small — worth remembering before tuning this by small increments again. Fixed properly by
+      giving `Agc` an `init()` that reads an optional `exposureTarget` from the tuning file (the
+      pattern `BlackLevel` already uses for `blackLevel`), clamped to a sane range, defaulting to the
+      derived value for any sensor that doesn't set one. Set per camera from measured captures:
+      `hi556` 0.34, `s5k3j1` 0.22 — both then land ~48–57% mean. Committed on the `hi556` branch and
+      shipped as `+hi5570`. **User confirmation, 2026-07-24: "Both cameras look the best they have
+      ever looked."** Retuning either camera is now a YAML edit
+      (`/usr/share/libcamera/ipa/simple/{hi556,s5k3j1}.yaml`) plus a pipewire/wireplumber restart —
+      no rebuild — though a package upgrade overwrites them.
+      **Remaining known gap, user-reported same day: autofocus is slow — "not production ready, but
+      it does eventually get there."** Expected: this is pure contrast-detection hill-climbing with
+      no PDAF (dead end on this kernel, see the AF TODO), so it physically steps the lens and waits
+      for settle at each position; measured ~29s full convergence. That is the next obvious
+      image-quality item after the `.aiqb` work, and is tracked in the autofocus TODO below rather
+      than here.
 - [x] **hi556 CCM — tuned and shipped, 2026-07-22.** Enabled `Ccm` in
       `ipa/simple/data/hi556.yaml` (was commented out). Measured against non-clipped white-paper
       captures under ~6800K room light: first pass (`R×1.034, G×0.977, B×0.991`, from two
