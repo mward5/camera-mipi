@@ -2070,6 +2070,30 @@ on my machine."
       reboot is cleanest) and confirm the rear camera still streams in the Camera app. Do this
       *after* confirming the production module fix reproduces on the current fw, so the two changes
       stay isolated.
+- [ ] **Camera naming inconsistency (`hi556` vs `Built-in Back Camera`) — root-caused 2026-07-24,
+      small upstreamable kernel fix, not yet written.** User noticed the front camera shows as the
+      bare driver name while the rear shows a friendly name. **Not a distro naming convention and
+      not a libcamera/PipeWire issue** — `cam`'s `cameraName()` builds the name from
+      `properties::Location` ("Internal front camera" / "Internal back camera") and *only* falls
+      back to the model string when Location is absent. Location is absent for `hi556` because
+      **mainline `hi556.c` never calls `v4l2_fwnode_device_parse()` /
+      `v4l2_ctrl_new_fwnode_properties()`**, so it exposes neither `V4L2_CID_CAMERA_ORIENTATION`
+      (0x009a0922) nor the rotation control — libcamera says so explicitly at probe: "Recommended
+      V4L2 control 0x009a0922 not supported" / "The sensor kernel driver needs to be fixed" /
+      "Failed to retrieve the camera location". Our `s5k3j1.c` *does* make both calls
+      (lines 1763-1769), which is the entire reason the rear camera gets a friendly name. **The data
+      is already available**: `ipu-bridge.c` parses `rotation` and `orientation` from ACPI
+      SSDB/`_PLD` and attaches them to every sensor it instantiates (see its `.rotation`/
+      `.orientation` property names and `ipu_bridge_parse_orientation()`), so `hi556.c` simply drops
+      properties that are already being handed to it. **Fix is ~8 lines** in `hi556_init_controls()`
+      after the existing `ctrl_hdlr->error` check, mirroring `s5k3j1.c`. Attractive upstream
+      candidate: no DMI/HID gating needed since this is a missing standard call rather than a
+      platform quirk, it fixes rotation as well as location, and it benefits every `hi556` machine on
+      every distro (confirmed by the user to look the same on Ubuntu and Fedora live images, which
+      run the same mainline driver). **Verify before assuming the result**: that this machine's
+      `_PLD` for `\_SB.PC00.LNK2` actually reports a front panel position - if `_PLD` is missing
+      `ipu_bridge_parse_orientation()` warns and falls back to a default, which would yield a wrong
+      or still-absent location. Purely cosmetic - the camera works correctly either way.
 - [ ] Root-cause the dual-monitor regression.
 - [ ] Clean up the driver git histories in `drivers/*` — current commits mix real fixes
       with debug prints/diagnostics in the same commit (e.g. `ipu-bridge`'s "debug code."
