@@ -1690,7 +1690,116 @@ on my machine."
       directly, **independent of focus state**, ruling out defocus as cause or cure. Since the
       `Agc` algorithm code is shared between `hi556.yaml` and `s5k3j1.yaml` (`src/ipa/simple/
       algorithms/agc.cpp`), this is one generic algorithm gap affecting both cameras, not two
-      separate bugs — still not fixed either place.
+      separate bugs.
+      **FIXED 2026-07-24 (see correction below — the first shipped fix, +hi5567, was itself
+      buggy; +hi5568 is the real fix).** User reported the rear camera washed out / oscillating on an
+      off-white wall ~5 inches away, with a pulsating "sunburst" — the same gain-hunting bug,
+      now root-caused precisely rather than just characterized. Instrumented live with the
+      existing `IPASoftExposure` debug logging against that exact scene: exposure was pinned at
+      its max (`exp 3412`, the whole run), and gain swung in a very regular ~6-sample cycle
+      between ~2.6x and ~3.9x (~50% swing) at the stats interval this build runs at (4 frames
+      apart at 25fps ≈ 160ms/sample) — a ~1s period, matching what the user described watching
+      live. Root cause: `Agc::updateExposure()`'s fixed ~10% step, with zero damping, overshoots
+      the ±0.2 satisfactory band on essentially every update when the scene's brightness responds
+      very steeply to gain (bright, close, reflective wall) — a textbook relay/bang-bang limit
+      cycle, not a scene-specific Windows-tuning gap. **Fix**: added a persistent per-session
+      step-scale factor to `IPAActiveState::agc` (`direction`/`stepScale`) — multiplicative
+      decrease (×0.5) when the correction direction flips from the previous update (meaning the
+      previous step overshot), slow additive recovery (+0.1, capped at 1.0) otherwise (AIMD).
+      At `stepScale == 1.0` the arithmetic is bit-identical to the old fixed-step behaviour, so
+      scenes that never overshoot see zero change. **Confirmed live both ways**: s5k3j1 against
+      the same close-wall scene now converges (~5.5s) and holds rock-steady instead of hunting
+      forever; hi556 against a normal indoor scene never left `stepScale = 1.0` across the whole
+      capture (no reversal ever detected) — confirming the fix is inert, and therefore
+      non-regressing, on the case that already worked. Committed `065d3d5` on the `hi556` branch.
+      Shipped as `+hi5567` — this build also packages the Phase 2/3 autofocus work (`169d683`,
+      `11a61f8`, `46b8669`) and the rear-camera CCM revert (`0edde37`) for the first time; both
+      had only ever been validated via the dev-build `LD_LIBRARY_PATH` override, never actually
+      installed as the system package, until now. **Not chased further, low priority**: the
+      ~5.5s convergence time on the pathological close-wall scene is noticeably slower than a
+      normal scene's ~1s convergence (see the hi556 capture above) — expected, since the fix
+      trades some responsiveness for stability specifically in the high-sensitivity regime that
+      used to oscillate forever; no evidence yet that this is worth tuning further.
+      **Correction, same day: +hi5567 was itself buggy and did NOT actually fix the oscillation —
+      found by live re-verification against the installed package, not by re-reading the code.**
+      Re-ran the exact same close-wall capture through the newly-installed `+hi5567` system
+      package and gain was *still* swinging wildly (~1.3x–3.8x), even with `stepScale` bottomed
+      out near its floor. A frozen-gain diagnostic (temporarily skip `updateExposure()`, just log
+      the raw `exposureMSV` every frame while gain/exposure stay fixed) proved the raw scene
+      signal itself is genuinely stable — a smooth ~5% drift over 7 seconds, no oscillation at
+      all — which conclusively ruled out real environmental/lighting flicker as the cause and
+      pointed straight back at the controller's own logic. Tracing actual logged deltas against
+      the code found two real bugs: (1) the delta computation was scaled by `stepScale`, but the
+      pre-existing "guarantee minimum progress" fallback (`if (delta < againMinStep) again -=
+      againMinStep;`) was **not** — it always applied the full, fixed, unscaled `againMinStep`
+      constant (1% of the sensor's whole gain range) once the damped delta shrank below it, which
+      happens on essentially every correction once `stepScale` drops much below 1 — silently
+      undoing all the damping and applying a full-size undamped step regardless of how small
+      `stepScale` had become; (2) recovery was too eager — a *single* non-reversal reading (same
+      direction as before, or landing inside the band by chance) was treated as full evidence of
+      convergence, when on this scene a swing can pass straight through the satisfactory band in
+      one sample while still very much oscillating (compounded by real feedback delay in the
+      control loop — a commanded step doesn't fully show up in stats for a frame or two).
+      **Fixed both**: scaled the minimum-step floor by `stepScale` too, and added
+      `IPAActiveState::agc.stableCount`, requiring 4 consecutive non-reversal readings before
+      growing the step size back rather than just one. Committed `026525a`. **Re-verified live
+      against the same real close-wall scene, this time via the actually-installed system
+      package** (not just the dev build): gain now settles within ~1s (a brief `stepScale` dip to
+      0.5, smooth recovery to 1.0 as it genuinely stabilizes) and holds rock-steady at a single
+      value for a full 30-second capture — previously it never stopped oscillating for any
+      duration tested, at any `stepScale`. hi556 re-confirmed unaffected (stepScale never leaves
+      1 on a normal scene). Shipped as `+hi5568`, installed and verified end-to-end through the
+      real PipeWire/WirePlumber path. **Lesson for future sessions, worth remembering**: "the
+      code should now damp this" and "it actually converges on real hardware" are different
+      claims — the first shipped version looked correct by construction and passed a narrower
+      live test, but only re-testing against the *installed* package on the *same real scene* at
+      full duration caught that a safety-net fallback was quietly defeating the whole fix. Don't
+      declare a control-loop fix verified from a single short capture or from reasoning about the
+      code alone; watch it hold steady for the full expected duration, ideally through the actual
+      shipped artifact, before calling it done.
+- [x] **AGC metering aimed far too bright (washed-out / blown highlights) — root-caused and
+      FIXED 2026-07-24, shipped as `+hi5569`.** With the oscillation fixed, the user reported the
+      rear camera still looked "hot" — large areas burned out to pure white on an ordinary desk
+      scene. Measured rather than eyeballed, via a new tool `scripts/agc-analyze-exposure.py`
+      (stdlib-only P6 PPM parser; reports mean output luma, percentiles, and clipped fraction of
+      captured frames): the settled image had **79.7% mean output luma with 30.6% of the frame
+      clipped to pure white** — genuinely, measurably overexposed, not a matter of taste.
+      **Root cause, two compounding mechanisms, both real bugs:** (1) `Agc` aimed the mean sample
+      value at the *middle of the histogram range* (`kExposureOptimal = kExposureBinsCount/2`, a
+      mean of 40% of full scale). That is the correct target for a perceptually-coded signal, but
+      `SwStatsCpu` builds the histogram directly from **raw Bayer samples, which are linear** —
+      gamma is applied later, in `DebayerCpu`'s LUT (`swstats_cpu.cpp:188` fills the histogram
+      from raw r/g/b; `debayer_cpu.cpp:827` computes `gamma(raw * gain)`). Aiming a *linear* mean
+      at the middle of its range puts the *encoded* mean far above the middle (~66% by the gamma
+      curve alone). (2) The **AWB gains are applied after the point the statistics are measured**,
+      so the pixel that reaches the screen is brighter than the sample AGC metered, by the
+      luma-weighted mean of those gains — green is pinned at 1.0 and R/B are scaled up to meet it
+      (`awb.cpp:93`), so that factor is always ≥1, and it differs per sensor and per illuminant
+      (measured 1.28 on s5k3j1, 1.23 on hi556). **Confirmed by a real target sweep** (temporary
+      env-var override, 9 settings, capturing and measuring real output at each): clipping fell
+      monotonically 33.4% → 4.5% → 1.9% as the target dropped 2.5 → 1.4 → 1.2, exactly as the
+      mechanism predicts. **Fix**: derive the target from the level the *output* should sit at —
+      `kOutputLinearTarget = 0.18`, the classic 18% mid-grey, which maps to ~46% after gamma 2.2 —
+      and fold in the luma-weighted AWB gain so the output mean lands on target regardless of what
+      AWB settled on. Clamped to `[1.2, old target]`: the upper bound means it can never aim
+      *brighter* than before (bounding regression risk), the lower bound keeps the "too dark"
+      branch reachable since MSV bottoms out at 1.0 against a ±0.2 band. Measured on settled
+      captures, both cameras: s5k3j1 **79.7%/30.6% clipped → 59.6%/0.33%**; hi556
+      **59.6%/0.36% → 41.0%/0.00%**. Both converge without hunting (the damping fix above still
+      holds), and the derived target differs between them (1.21 vs 1.23) purely from their
+      different AWB gains — the intended per-sensor adaptation, achieved with no per-sensor
+      constant. Committed `2618932`. **A highlight-protection constraint was built and then
+      deliberately dropped** — worth recording so it isn't re-attempted blindly: clipping on these
+      scenes is **per-channel** (warm light drives red into saturation while luminance stays
+      modest), and the raw *luma* histogram cannot see it. Measured directly: on the desk scene the
+      histogram topped out at bin 21 of 64 — predicting zero clipping — while 2% of output pixels
+      were genuinely clipped. Doing it properly needs **per-channel histograms, or a post-gain
+      clipped count, added to `SwIspStats`**; that's the concrete follow-up if highlight protection
+      is wanted later. **Known characteristic, not chased**: hi556 now settles a little on the dark
+      side on a low-contrast scene (41% mean, highlights only reaching p99=226, i.e. unused
+      headroom) while s5k3j1 sits at 59.6% — both are within normal spread for mean-based metering
+      on different scene content, and the pair averages ~50%, but if the front camera reads too dark
+      in practice the single knob is `kOutputLinearTarget`.
 - [x] **hi556 CCM — tuned and shipped, 2026-07-22.** Enabled `Ccm` in
       `ipa/simple/data/hi556.yaml` (was commented out). Measured against non-clipped white-paper
       captures under ~6800K room light: first pass (`R×1.034, G×0.977, B×0.991`, from two
