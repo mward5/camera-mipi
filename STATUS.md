@@ -2039,6 +2039,40 @@ on my machine."
       `+hi556` `.deb` so Snapshot uses it without the drop-in. PDAF context (dead end on this
       kernel, WIP archived in `~/work/git-ubuntu/libcamera` branch `pdaf-sideband-wip`) is preserved
       in that doc rather than here.
+      **2026-07-24 — PDAF re-assessed, and the effort estimate revises DOWN substantially. The
+      only genuine blocker is the kernel routing restriction; the algorithm is already written.**
+      Prompted by asking how much better PDAF would be than the shipped CDAF. Checked rather than
+      assumed, and the assumption that "there is no PDAF implementation in the available Linux code
+      base" is **wrong**: `src/ipa/rpi/controller/rpi/af.cpp` in the very libcamera tree this project
+      already builds is a complete, mature, **hybrid PDAF+CDAF** autofocus, BSD-2-Clause, from
+      Raspberry Pi Ltd. Its own header states the design: "a hybrid of CDAF and PDAF, favouring
+      PDAF... When PDAF confidence is low (due e.g. to low contrast or extreme defocus) or PDAF data
+      are absent, fall back to CDAF with a programmed scan pattern... The scan may terminate early
+      if PDAF recovers." The data contract is small — `src/ipa/rpi/controller/pdaf_data.h` defines
+      `PdafData { uint16_t conf; int16_t phase; }` (phase S.11.4 fixed point) delivered as a grid
+      via `RegionStats<PdafData>`. **Key detail that lowers the calibration barrier**: rpi's tuning
+      exposes `pdafGain` — "coefficient for PDAF feedback loop" — plus `pdafSquelch`, `confThresh`,
+      `confEpsilon`, `dropoutFrames`, i.e. they run a *proportional feedback loop* and iterate rather
+      than doing one calibrated defocus→position jump. So precise per-module PDAF calibration is not
+      a prerequisite to get something working; a tuned gain is. (The per-module calibration does
+      plausibly live in the `.aiqb` files — note the rear camera's are named `..._PDAF_T2.aiqb` —
+      which ties this to the `.aiqb` extraction item above.) PDAF also appears in the Intel HAL
+      (`AiqCore.cpp`, `PlatformData`) but that is plumbing only, with the real phase processing
+      inside the closed `libia_aiq`; and our own `s5k3j1.c` already carries dual-stream
+      `get_frame_desc` PDAF support kernel-side. **Net**: the remaining work is a PAF sideband data
+      path (kernel `V4L2_SUBDEV_ROUTING_ONLY_1_TO_1` restriction, still the hard blocker) plus
+      delivering `PdafRegions`-equivalent data into the soft-ISP IPA — *not* designing an AF
+      algorithm, since a working license-compatible one is in-tree. **Estimated payoff, from this
+      project's own measured numbers**: current CDAF does ~18 lens moves at ~1.5s each (settle plus
+      4 stable readings) for ~29s total; PDAF collapses that to one measurement, one move and a
+      confirmation — order 0.5–1.2s, i.e. ~25–50x, with the floor set by lens mechanics (settle
+      measured up to ~870ms) rather than by computation. Bigger precision win is on low-contrast
+      scenes, exactly where CDAF is measurably worst here (repeated-trial stddev 104 on the flat
+      wall vs 12.8 on the textured futon scene). Caveats: low light hurts PDAF more than CDAF
+      (phase pixels are partially masked), and porting `af.cpp` must preserve Raspberry Pi Ltd's
+      copyright and say so explicitly, per this file's Attribution section. These convergence
+      figures are reasoned estimates from measured settle/reading times, **not** measured PDAF
+      results — nothing here has been run on this hardware.
 - [ ] **Rebase `drivers/ipu-bridge` onto current real upstream, before further cleanup.**
       Its base commit (`7364894 from linux_7.0.0.orig.tar.gz`) came from an apt-source
       snapshot that's already confirmed stale: diffing it against
