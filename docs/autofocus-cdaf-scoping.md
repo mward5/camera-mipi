@@ -1,8 +1,24 @@
 # Real closed-loop autofocus (CDAF) for the rear camera — scoping plan
 
-**Status (2026-07-23): Phase 0/1 prototyping is well underway with real
-hardware results** — a working coarse+fine hill-climb with settle detection
-and continuous monitor/recovery, validated on two scenes. **Read this
+**Status (2026-07-23): Phase 0/1 validated on real hardware; Phase 2 in-tree
+plumbing now code-complete and building clean, hardware validation pending.**
+Phase 0/1 delivered a working coarse+fine hill-climb with settle detection and
+continuous monitor/recovery, validated on two scenes. Phase 2 (the in-tree
+`soft.mojom` lens-control signal + `SwIspStats` sharpness field + `simple.cpp`
+lens wiring + `FocusFoM`) is implemented in `~/work/git-ubuntu/libcamera` and
+compiles cleanly. **Phase 2 and Phase 3 are both DONE and validated end-to-end
+on real hardware 2026-07-23.** Phase 2: a dev-build `cam` run moved the lens via
+the new `setLensControls` IPC path and showed a real `FocusFoM` from the new
+sharpness stat. Phase 3: the real `Af` algorithm (`src/ipa/simple/algorithms/
+af.{h,cpp}`, committed `46b8669`) autonomously ran a coarse+fine hill-climb and
+**converged to a stable focus (752) and held it** with no app, no trigger, and
+AGC left running — `AfState` reported `Scanning`→`Focused`. (An intermediate
+Phase 2 check had wrongly concluded the lens half was blocked by a missing
+ancillary link — a `media-ctl` false negative, since `media-ctl` doesn't print
+ancillary links; `MEDIA_IOC_G_TOPOLOGY` shows the `s5k3j1`→`lc898217` ancillary
+link exists. Corrected in the Phase 2 section.) Remaining: the GNOME
+Snapshot app-level demo and convergence-speed tuning — see the Phase 3 section.
+**Read this
 notice before trusting any AGC-related claim in this document dated
 2026-07-22**: everything measured that day (the "AGC confound eliminated,
 no locking needed" conclusion, and everything downstream of it) was run
@@ -999,7 +1015,101 @@ verify the pipes work with a trivial/manual payload first.
 end-to-end through the real pipeline handler (not just direct V4L2), and a
 real sharpness value from live frames is visible in `SwIspStats`/`FocusFoM`
 metadata — with no hill-climb logic yet, proving the plumbing independently of
-the algorithm.
+the algorithm. **✓ Met 2026-07-23** (lens moved 100→800 via the IPC path,
+`FocusFoM` varied in `cam --metadata` — see the validation note below).
+
+**Built + committed 2026-07-23 (Opus) — code complete, builds clean, and
+validated end-to-end on real hardware (see below).** All five plumbing changes are in place in
+`~/work/git-ubuntu/libcamera` (7 files, +119 lines, `ninja -C build` clean,
+mojom regenerated and confirmed), committed on the `hi556` branch as two
+commits: `169d683` "software_isp: Add sharpness statistic for
+contrast-detection AF" (the `SwIspStats` field + `swstats_cpu` accumulation)
+and `11a61f8` "ipa: simple: Wire lens control and report FocusFoM" (the mojom
+signal, IPA/`SoftwareIsp`/`simple.cpp` lens wiring, `FocusFoM`
+advertisement/reporting, and the debug scaffold). mojom regenerated and
+confirmed — `setLensControls` signal and
+`IPAConfigInfo::lensControls` both present in the generated
+`soft_ipa_interface.h`/`soft_ipa_serializer.h`):
+
+- **Open Question #4 decided: dedicated rpi-style signal.**
+  `IPASoftEventInterface` gains `setLensControls(ControlList)` (mirroring
+  `raspberrypi.mojom:285`), not an extra parameter on `setSensorControls`
+  (the ipu3 pattern). Cleaner separation, and the soft IPA emits sensor and
+  lens controls at different points anyway.
+- **Lens IPC path**, mirroring the existing `setSensorControls` chain exactly:
+  IPA emits `setLensControls` → `SoftwareIsp::setLensCtrls` slot re-emits
+  `SoftwareIsp::setLensControls` → `SimpleCameraData::setLensControls` slot
+  calls `sensor_->focusLens()->setFocusPosition(V4L2_CID_FOCUS_ABSOLUTE)`
+  (same body as `ipu3.cpp:1209-1218` / `pipeline_base.cpp:1258-1264`). The
+  lens `ControlInfoMap` is threaded to the IPA the same way sensor controls
+  already are: a new `IPAConfigInfo::lensControls` field, populated in
+  `SimplePipelineHandler::configure()` from `focusLens()->controls()`, stored
+  as `lensInfoMap_` in the IPA so it can build a properly-mapped `ControlList`.
+- **Sharpness stat**: `SwIspStats` gains a `uint64_t sharpness` field,
+  accumulated in `swstats_cpu.cpp`'s shared per-line macros as the sum of
+  squared horizontal green gradients (a subsampled Tenengrad cousin — the
+  only thing cheaply computable from the existing sparse `x += 4` line
+  access; documented as an approximation, consistent with Phase 1's
+  Tenengrad-over-Laplacian finding). Reset in `startFrame()` alongside the
+  existing sums/histogram.
+- **`FocusFoM` advertised and reported**: added to `ipaControls` in
+  `IPASoftSimple::init()`, and set per-frame in `processStats()` from
+  `stats_->sharpness` (clamped into int32 — the raw uint64 stays available
+  to Phase 3's `Af`, so the clamp only affects the app-visible FoM, not the
+  future algorithm).
+- **Validation scaffold** (not the real algorithm): an env-gated hook,
+  `LIBCAMERA_SOFT_AF_DEBUG_POS=<0..1023>`, makes the IPA emit that fixed
+  focus position through the new `setLensControls` path every stats frame —
+  just enough to prove the pipe end-to-end without any AF logic. Inert by
+  default; Phase 3's `Af` algorithm replaces it. If the env var is set but
+  no lens was discovered, the IPA logs a warning rather than silently doing
+  nothing.
+
+**Both halves validated end-to-end on real hardware 2026-07-23 — Phase 2 is
+DONE.** A single `cam` run with the dev build proved the whole pipeline:
+- **Lens IPC path**: `focus_absolute` on the `lc898217` subdev read **100
+  before** the run and **800 after**, driven purely by
+  `LIBCAMERA_SOFT_AF_DEBUG_POS=800` — i.e. the IPA emitted `setLensControls`,
+  it crossed IPC, `SoftwareIsp` re-emitted it, `SimpleCameraData::
+  setLensControls()` called `focusLens()->setFocusPosition(800)`, and the lens
+  moved. That `focusLens()` was non-null also proves the ancillary link and the
+  `IPAConfigInfo::lensControls` threading both work.
+- **`FocusFoM` path**: `FocusFoM` appeared in `cam --metadata` output, updating
+  every 4 frames (the `kStatPerNumFrames` cadence) with real, varying values
+  (84.3M → 87.1M → 85.7M → 62.2M → 39.5M as the lens moved and defocused the
+  scene) — a genuine sharpness signal from the new `SwIspStats::sharpness`
+  field flowing through to the metadata. Values sit comfortably in the tens of
+  millions, far below the int32 clamp ceiling, so no saturation.
+
+**Retraction — an earlier reading in this section was WRONG and is corrected
+here rather than silently overwritten** (per this project's convention). An
+intermediate check on 2026-07-23 concluded the sensor↔lens **ancillary link
+did not exist** and that the lens half was therefore blocked kernel-side. That
+was a **false negative from trusting `media-ctl -p`'s text output**:
+`media-ctl` 1.32.0 does **not** print `MEDIA_LNK_FL_ANCILLARY` links at all,
+and an entity's "N links" count covers only pad links — so `lc898217 1-0072`
+showing `0 link` said nothing about ancillary links. Querying the kernel
+directly with `MEDIA_IOC_G_TOPOLOGY` (a ~40-line ctypes ioctl script,
+`scratchpad/topo.py`) showed the link plainly:
+`ANCILLARY LINK: 247 (s5k3j1 1-0010) -> 253 (lc898217 1-0072)`. The kernel
+side was correct all along — `v4l2_async_register_subdev_sensor()`
+(`s5k3j1.c:1997`) → `v4l2_async_nf_parse_fwnode_sensor()` parses `lens-focus`
+via `v4l2_fwnode_reference_parse()`, whose `fwnode_property_get_reference_args()`
+**does** fall through to the swnode secondary fwnode
+(`drivers/base/property.c:610-617` in the `Ubuntu-7.0.0-28.28` tree), so the
+"ACPI-primary vs swnode-secondary" hypothesis was also wrong. Lesson recorded:
+**don't infer ancillary-link presence from `media-ctl` — query
+`MEDIA_IOC_G_TOPOLOGY` (or let libcamera, which parses ancillary links at
+`media_device.cpp:764`, be the judge).**
+
+**How it was validated (reproducible):** stop `wireplumber`/`pipewire` and
+`killall cam` to free the camera (the Phase 1 script pattern), set the dev-build
+`LD_LIBRARY_PATH`/`LIBCAMERA_IPA_MODULE_PATH` overrides, pre-set
+`v4l2-ctl -d <lc898217 subdev> -c focus_absolute=100`, then
+`LIBCAMERA_SOFT_AF_DEBUG_POS=800 cam --camera='\_SB_.PC00.LNK0'
+-s width=800,height=600,role=viewfinder --capture=40 --metadata`, and read back
+`focus_absolute` (→ 800) plus grep the output for `FocusFoM`. Restart
+`pipewire`/`wireplumber` afterwards.
 
 ### Phase 3 — real `Af` algorithm class (Option A, part 2)
 
@@ -1038,6 +1148,75 @@ shows continuously-in-focus rear-camera video with no control writes from the
 app at all, matching or exceeding Phase 1's measured continuous-operation
 reliability (converges on real changes, stays quiet on a static scene).
 
+**Built + validated 2026-07-23 (Opus), committed `46b8669`.** `src/ipa/simple/
+algorithms/af.{h,cpp}` implements the `Af` algorithm as a `libipa` `Algorithm`
+following `agc.cpp`'s shape, registered via `REGISTER_IPA_ALGORITHM(Af, "Af")`
+and enabled by adding `- Af:` to `s5k3j1.yaml`. It reads `SwIspStats::sharpness`
+(the Phase 2 stat), runs a coarse-then-fine hill-climb with the Phase 1
+settle-detection (N consecutive stable readings within tolerance, frame-budget
+timeout) and a scene-relative re-scan threshold (fraction of the converged
+peak's prominence, floored so a flat scene doesn't hunt), then holds and
+monitors. The search state lives in `Af` members; only the desired position +
+an `applyLens` flag cross to the IPA via `IPAActiveState::af`, which
+`IPASoftSimple::processStats()` reads to emit `setLensControls` (the Phase 2
+path). The `Af` now owns `FocusFoM` (advertised in `init()`, reported per frame)
+and reports `AfState`; the Phase 2 debug scaffold (`LIBCAMERA_SOFT_AF_DEBUG_POS`)
+and the IPA's interim `FocusFoM` reporting were removed in the same commit,
+superseded by the real algorithm. Constants (`kCoarseStep=96`, `kFineStep=16`,
+`kSettleFrames=4`, `kSettleTolerance=0.02`, `kMaxFramesPerPos=12`,
+`kSkipFramesAfterMove=2`, `kDegradeFraction=0.5`, `kMinDropFraction=0.05`,
+`kDegradeHysteresis=2`) are the Phase 1 values; a "reading" is one
+valid-stats frame (stats run every `kStatPerNumFrames`=4 frames).
+
+**Hardware validation (`cam --metadata`, no app, no trigger, no debug env):**
+the lens autonomously swept a full coarse scan (`0→96→…→960`), jumped back and
+ran a fine scan around the coarse winner (`672→…→864` in 16-unit steps), then
+**converged to 752 and held it rock-steady for 21s with zero false
+re-triggers** — landing squarely in the 640–784 region every Phase 1 wall-scene
+run and the clean locked sweep found. `AfState` reported `Scanning` (721 frames)
+then `Focused` (568 frames), ending Focused; `FocusFoM` varied 38.9M–48.8M.
+Full convergence took ~29s (coarse ~13s + fine ~16s).
+
+**Notable empirical finding — AGC coordination was NOT needed for convergence.**
+This ran with the real `Agc` unlocked (the same anti-flicker gain oscillation
+Phase 1 had to lock out for the *standalone* prototype's metric), yet the
+in-tree `Af` still converged cleanly and held without hunting. The coarse+fine
+structure plus settle-detection-with-timeout absorbs the gain-driven sharpness
+noise well enough in practice — so the Phase 3 plan's conditional "if AGC
+locking is necessary, coordinate `Af`/`Agc` via `IPAContext`" was checked
+empirically and, for this scene, isn't required. Left unimplemented on purpose;
+an `activeState.af.scanning` freeze flag consumed by `Agc::process()` is the
+obvious refinement if a harder/darker scene ever needs it.
+
+**App-level demo — set up and proven through the real PipeWire path 2026-07-23.**
+The ultimate "done when" is a zero-AF-awareness app (GNOME Snapshot) showing
+in-focus rear-camera video. Snapshot goes through PipeWire/WirePlumber → the
+*system* libcamera package, not the dev build, so the demo needs the pipewire
+stack pointed at the dev build. The system package is itself a build of this
+repo (`0.7.0-1ubuntu3+hi556`, same 0.7.0 ABI), so a temporary systemd **user
+drop-in** (`~/.config/systemd/user/{pipewire,wireplumber}.service.d/
+dev-libcamera.conf`) setting `LD_LIBRARY_PATH` (dev `src/libcamera` +
+`src/libcamera/base`), `LIBCAMERA_IPA_MODULE_PATH` (dev `src/ipa/simple`), and
+`LIBCAMERA_DISABLE_IPU6_PDAF=1`, then `systemctl --user daemon-reload &&
+systemctl --user restart pipewire wireplumber`, makes both processes load the
+dev libcamera + dev IPA (verified via `/proc/<pid>/maps`; the system
+`libspa-libcamera.so` loaded the dev libcamera fine — ABI compatible — and the
+dev IPA's signature matched the dev libcamera's baked-in key, so it ran
+in-process). **Proven** by streaming node 110 ("Built-in Back Camera") with a
+GStreamer pipewire consumer (`gst-launch-1.0 pipewiresrc target-object=111 !
+videoconvert ! fakesink`, the same pipewire path Snapshot uses): the lens
+autonomously swept coarse `0→192→…→960`, fine-scanned `672→…→864`, and converged
+to **784** and held — identical behaviour to the direct-`cam` run, now through
+the app path. The drop-in is left in place for the user to open Snapshot and
+watch it focus; reverting is deleting the two `.conf` files +
+`daemon-reload` + restart (returns to the system package). **Still remaining**:
+the user's own visual confirmation in the Snapshot GUI (the pipewire-consumer
+proof is functionally identical but headless); convergence-speed tuning (~29s is
+slow — fewer settle frames or a coarser first pass would help); AGC
+freeze-during-scan if a harder scene needs it; the still-open Open Questions; and
+productionizing the dev build into an updated `+hi556` `.deb` so Snapshot uses it
+without the drop-in.
+
 ## Open questions (decide explicitly, don't drift into an answer)
 
 1. **Decided 2026-07-22: continuous AF is the actual goal, not single-shot.**
@@ -1067,10 +1246,15 @@ reliability (converges on real changes, stays quiet on a static scene).
    demo — see the updated Phase 3 section below. Keeping the controls
    internal-only (#2) is compatible with this: they're for future
    observability/override, not a requirement for basic function.
-4. **`setLensControls` mojom shape** — dedicated signal (rpi pattern) vs.
-   extending the existing `setSensorControls` signal (ipu3 pattern). Per
-   2026-07-22 direction, left as originally proposed: decide when Phase 2
-   actually starts, not now.
+4. **Decided 2026-07-23 (Phase 2 build): dedicated `setLensControls` signal
+   (rpi pattern).** Chose the rpi-style dedicated `setLensControls(ControlList)`
+   signal over extending `setSensorControls` with a second parameter (the ipu3
+   pattern). Reasons: clearer separation of concerns, the soft IPA emits sensor
+   and lens controls at different points, and it reads the same as the existing
+   `setSensorControls` chain (one signal, one re-emit slot, one pipeline slot).
+   The lens `ControlInfoMap` is threaded to the IPA via a new
+   `IPAConfigInfo::lensControls` field, exactly mirroring how `sensorControls`
+   already reaches the IPA.
 5. **Whether to ever expose the kernel driver's undocumented `GetStatus`/
    `GetPos` protocol (reg `0x0A`) as a real busy/settle signal**, vs. relying
    on a fixed empirically-measured delay. Was "only worth pursuing if settle
