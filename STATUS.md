@@ -1821,21 +1821,36 @@ on my machine."
       light. Reverted to disabled in `+hi5566` — two blinds-open, near-window samples aren't
       representative enough coverage to leave a CCM on for general use. **Don't re-attempt
       with more ad-hoc paper measurements** — see below.
-- [ ] **Extract real IQ tuning (CCM, AWB, black level, gamma) from the Intel AIQ `.aiqb`
-      binaries instead of ad-hoc measurement (future, separate effort) — the better path
-      forward for both cameras' color tuning, prompted by the rear-camera CCM failure above.**
-      `reference/windows-driver-artifacts/dell-drivers/.../Drivers/` has
-      `s5k3j1sx04_CJALR11_ADL_PDAF_T2.aiqb` (rear) and hi556's own `.aiqb` — these came from
-      Intel/Dell's actual lab calibration (multiple standard illuminants, properly interpolated
-      across the full CT range), which is exactly the kind of broad, controlled coverage that
-      today's single-room, shifting-daylight paper measurements couldn't replicate — the rear
-      camera CCM attempt above is a concrete example of why ad-hoc measurement isn't good
-      enough. Not yet started: needs the `.aiqb`/`.cpf` binary format parsed (Intel AIQ tools if
-      available, or RE similar to how the VCM/PLL/CSI2 work in this project was done). The
-      `graph_settings_*.xml` files (64 of them) are pipeline-graph topology, not IQ tuning — not
-      useful for this despite being XML/human-readable. Realistic scope: the soft ISP only
-      consumes a small subset (black level, AWB gains, a 3x3 CCM, gamma) — don't expect to
-      consume the `.aiqb` wholesale, just mine those specific fields once the format is known.
+- [ ] **Extract real IQ tuning (CCM, then LSC) from the Intel AIQ `.aiqb` binaries instead of
+      ad-hoc measurement — SCOPED 2026-07-24, see `docs/aiqb-iq-tuning-scoping.md`, not started.**
+      Prompted by the rear-camera CCM having been measured by hand and reverted the same day
+      (`+hi5566`) because two paper samples under one lighting condition didn't generalise, and
+      reinforced 2026-07-24 by the user observing a red shirt rendering orange on `hi556` while a
+      Logitech C925e renders it correctly. **Key finding from reconnaissance: this is NOT a
+      reverse-engineering project.** The struct definitions (`ia_cmc_types.h`), the parser API
+      (`ia_cmc_parser.h`) and a *working parser library* (`libia_cmc_parser-ipu6epmtl.so.0`, symbols
+      confirmed via `nm -D`) are all already on disk in `~/work/intel/ipu6-camera-bins/`, from
+      Intel's own open-source IPU6 release — so the job is "link Intel's parser and print the
+      structs", not "decode a format". `ia_cmc_t` exposes `cmc_parsed_color_matrices` (per-illuminant
+      3x3 CCMs with light-source type, sensor chromaticity and CIE coordinates — a real
+      multi-illuminant calibration) and also `cmc_parsed_lens_shading`, i.e. LSC tables, which is the
+      biggest remaining visual-quality gap since the soft ISP has no lens shading correction at all.
+      Verified it maps cleanly onto libcamera: `ccm.cpp` already selects by interpolated colour
+      temperature (`ccm_.getInterpolated(ct)`) and the tuning-file format is exactly a list of
+      `{ct, 3x3}` nodes, while the application point matches too (CCM on linear data after AWB gains,
+      before gamma — `debayer_cpu.cpp:807`/`:827`). Container format decoded far enough to
+      sanity-check (`CPFF` magic, `LCMC`/`DFLT`/`AIQB` records, embedded build date and `IQStudio`
+      /`LibIQ` provenance) but deliberately no further, since the vendor parser does the real work.
+      **Biggest open question: which `.aiqb` is this unit's** — the middle filename token
+      (`CJALR11`, `1BAA01T3`, ...) is a module ID and the wrong module's calibration is no better
+      than a guess; best lead is the sensor EEPROM at I2C `0x50`, never read by any Linux driver
+      here, which doubles as the parser's second (`nvm`) argument. **Also unresolved and worth
+      deciding early: licensing.** These are proprietary Dell/Intel blobs; extracting values for this
+      machine is one thing, shipping them upstream is another, and this project's stated goal is real
+      upstream submission. Note Intel ships no `s5k3j1` `.aiqb` at all, so the Dell blob is the only
+      source for the rear camera and always will be; for `hi556` Dell's copy is also newer than
+      Intel's (build dates `22122113` vs `22032407`). Full plan, phases, risks and file inventory in
+      the scoping doc.
 - [ ] **Real closed-loop autofocus for the rear camera — scoped 2026-07-22, working hill-climb
       prototype validated against real hardware with AGC locking (2026-07-23), and Phases 2 AND 3 of the
       in-tree libcamera integration now built, committed, and validated end-to-end on real hardware
