@@ -2107,6 +2107,28 @@ on my machine."
       out-of-tree, so testing needs it set up as a 6th out-of-tree module (copy from
       `~/work/git-ubuntu/resolute` at the matching tag, add to `install-custom-modules.sh`) plus a
       reboot, per the testing-methodology note above.
+- [ ] **Privacy/indicator LED never lights for the rear camera — root-caused 2026-07-24, not
+      fixed.** User: on Windows the white camera indicator lights for both front and back cameras;
+      on Linux only for the front. **This is a real gap in Linux's TPS68470 support, not just our
+      board data.** The two cameras take different INT3472 paths: the front `hi556` hangs off a
+      *discrete* `INT3472:02`, and mainline's `int3472/discrete.c` understands
+      `INT3472_GPIO_TYPE_PRIVACY_LED` (maps it to a `privacy-led` con_id and drives it with sensor
+      power) — so the front LED works. The rear `s5k3j1` hangs off the **TPS68470 PMIC**
+      (`INT3472:07`, an I2C/MFD device), and the TPS68470 path has **no privacy-LED concept at all**
+      — grepping `drivers/platform/x86/intel/int3472/` for `PRIVACY_LED` hits only `discrete.c`.
+      Our `tps68470_board_data.c` GPIO lookup table for `i2c-INT346D:00` accordingly declares only
+      `reset` and `powerdown`; there is nothing to add a third entry *to*, since no consumer exists.
+      **Unknown, and the next thing to establish**: which TPS68470 GPIO (if any) is physically wired
+      to the rear indicator. Windows lights it, so a software-controllable path must exist. Two
+      routes: (a) Ghidra the Windows TPS68470/camera driver the way the VCM identity was settled, or
+      (b) empirically toggle the unused TPS68470 GPIOs and watch for the LED — cheap, but note the
+      unused lines may control rails or straps, so treat it as a real experiment rather than a
+      poke-and-see. Worth doing properly: **an indicator that stays dark while a camera is capturing
+      is a privacy failure, not a cosmetic difference**, which is the argument for matching Windows'
+      behaviour rather than treating "the LED belongs to the front camera" as equally valid. A fix
+      would be genuinely upstreamable (privacy-LED support for the TPS68470 path benefits every
+      TPS68470 camera platform, not just this model), and would need the LED wired to sensor
+      power/streaming state the way `discrete.c` does it, not toggled ad hoc.
 - [ ] Root-cause the dual-monitor regression.
 - [ ] Clean up the driver git histories in `drivers/*` — current commits mix real fixes
       with debug prints/diagnostics in the same commit (e.g. `ipu-bridge`'s "debug code."
