@@ -2094,6 +2094,19 @@ on my machine."
       `_PLD` for `\_SB.PC00.LNK2` actually reports a front panel position - if `_PLD` is missing
       `ipu_bridge_parse_orientation()` warns and falls back to a default, which would yield a wrong
       or still-absent location. Purely cosmetic - the camera works correctly either way.
+      **VERIFIED 2026-07-24 and patch drafted (`docs/hi556-camera-orientation.patch`), not yet built
+      or tested.** Read `_PLD` at runtime via `acpi_call` (the static DSDT buffer is only a
+      placeholder - the method patches byte 8 from the NVS globals `L0PL`/`L2PL`, which the BIOS
+      fills at boot and which are never assigned in the DSDT). Runtime result: **LNK0 byte 8 =
+      `0x69` -> panel 5 = Back, LNK2 byte 8 = `0x61` -> panel 4 = Front** (panel is bits 3-5). LNK0
+      decoding to Back independently validates the bit arithmetic, since that is the value the rear
+      camera already demonstrably resolves to. So the ACPI data is correct and present, and
+      `hi556.c` is simply discarding it - the patch will work. Repro for the check:
+      `sudo modprobe acpi_call && echo '\_SB.PC00.LNK2._PLD' | sudo tee /proc/acpi/call && cat
+      /proc/acpi/call`. **Remaining work**: `hi556` is a *stock* module this project has never built
+      out-of-tree, so testing needs it set up as a 6th out-of-tree module (copy from
+      `~/work/git-ubuntu/resolute` at the matching tag, add to `install-custom-modules.sh`) plus a
+      reboot, per the testing-methodology note above.
 - [ ] Root-cause the dual-monitor regression.
 - [ ] Clean up the driver git histories in `drivers/*` — current commits mix real fixes
       with debug prints/diagnostics in the same commit (e.g. `ipu-bridge`'s "debug code."

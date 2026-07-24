@@ -1,0 +1,75 @@
+From: Mike Ward <mward5@tinfoil-fedora.com>
+Subject: [PATCH] media: i2c: hi556: report camera orientation and rotation
+
+hi556 never calls v4l2_fwnode_device_parse() /
+v4l2_ctrl_new_fwnode_properties(), so it exposes neither
+V4L2_CID_CAMERA_ORIENTATION nor V4L2_CID_CAMERA_SENSOR_ROTATION even
+when the platform describes them.
+
+On ACPI platforms the information is already available and already
+parsed: ipu-bridge reads the panel position from _PLD and the rotation
+from the SSDB, and attaches both to the sensor's software node as the
+"orientation" and "rotation" properties. Without the corresponding
+controls the sensor driver simply drops them, and userspace has no way
+to tell where the camera is pointing.
+
+The visible effect is that libcamera cannot populate
+properties::Location, and falls back to naming the camera after its
+model. On a Dell XPS 13 9315 2-in-1 the internal front camera is
+reported as "hi556" while the back camera, whose driver does report
+orientation, is correctly reported as "Internal back camera".
+libcamera flags the omission explicitly at probe time:
+
+  'hi556 0-0020': Recommended V4L2 control 0x009a0922 not supported
+  'hi556 0-0020': The sensor kernel driver needs to be fixed
+  'hi556 0-0020': Failed to retrieve the camera location
+  'hi556 0-0020': Rotation control not available, default to 0 degrees
+
+Parse the fwnode properties and register the corresponding controls,
+as most other sensor drivers already do. Verified on the machine above,
+where _PLD reports panel 4 (front) for the hi556 and panel 5 (back) for
+the rear sensor.
+
+Signed-off-by: Mike Ward <mward5@tinfoil-fedora.com>
+---
+ drivers/media/i2c/hi556.c | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/media/i2c/hi556.c b/drivers/media/i2c/hi556.c
+index 0dae0438aa80..1111111111111 100644
+--- a/drivers/media/i2c/hi556.c
++++ b/drivers/media/i2c/hi556.c
+@@ -847,12 +847,13 @@ static const struct v4l2_ctrl_ops hi556_ctrl_ops = {
+
+ static int hi556_init_controls(struct hi556 *hi556)
+ {
++	struct v4l2_fwnode_device_properties props;
+ 	struct v4l2_ctrl_handler *ctrl_hdlr;
+ 	s64 exposure_max, h_blank;
+ 	int ret;
+
+ 	ctrl_hdlr = &hi556->ctrl_handler;
+-	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 8);
++	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 10);
+ 	if (ret)
+ 		return ret;
+
+@@ -906,6 +907,17 @@ static int hi556_init_controls(struct hi556 *hi556)
+ 	if (ctrl_hdlr->error)
+ 		return ctrl_hdlr->error;
+
++	ret = v4l2_fwnode_device_parse(hi556->dev, &props);
++	if (ret)
++		return ret;
++
++	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &hi556_ctrl_ops,
++					      &props);
++	if (ret)
++		return ret;
++
++	if (ctrl_hdlr->error)
++		return ctrl_hdlr->error;
++
+ 	hi556->sd.ctrl_handler = ctrl_hdlr;
+
+ 	return 0;
