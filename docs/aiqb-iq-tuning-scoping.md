@@ -1,6 +1,15 @@
 # Image-quality tuning from Intel AIQ `.aiqb` files — scoping
 
-Status: **scoped, not started.** Reconnaissance done 2026-07-24; no code written yet.
+Status: **Phase 1 (extractor) done, 2026-07-27.** Reconnaissance done
+2026-07-24; `scripts/aiqb-dump-cmc.c` now links Intel's parser and
+successfully dumps real per-illuminant CCM + LSC data from every Dell
+`.aiqb` candidate. See `docs/aiqb-cmc-dump-findings.md` for the full
+writeup, including a container-framing bug that had to be fixed first
+(the parser wants the inner `"AIQB"` sub-blob, not the whole file) and
+that the real data lives in the *advanced* color-matrix record, not the
+basic one this doc originally targeted. hi556's module ID is resolved
+(`HI556_1BG502T3_ADL.aiqb`, confirmed by embedded build date); s5k3j1's
+is still open, pending the EEPROM read below.
 
 ## Goal
 
