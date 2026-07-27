@@ -1830,6 +1830,25 @@ on my machine."
       captures). Shipped as `+hi5563` (first pass) then `+hi5564` (retune). Diagonal-only, single
       `ct: 6800` node — no evidence of real cross-channel bleed requiring off-diagonal terms, and
       no coverage claimed outside ~6800K-ish lighting.
+      **Superseded live 2026-07-27** (not yet packaged/changelog-bumped) by 6 real
+      per-illuminant matrices extracted from `HI556_1BG502T3_ADL.aiqb` — see
+      `docs/aiqb-cmc-dump-findings.md` and the extraction tool, `scripts/aiqb-dump-cmc.c`.
+      Confirmed genuine improvement on skin tone and clothing colour (the original motivating
+      complaint — red shirt rendering orange — user-confirmed fixed). **But a real, measured
+      defect was found in the same pass**: a green cast on neutral surfaces (wall, saturation
+      ~0.2-0.23 vs ~0.05 on a reference Logitech shot) and magenta clipping on blown highlights
+      (a sun-on-fabric highlight measured `RGB(255,201,255)` — R/B clip before G catches up).
+      Root-caused via live `LIBCAMERA_LOG_LEVELS=IPASoftAwb:DEBUG,IPASoftCcm:DEBUG` logging
+      (see the temporary debug line added to `ccm.cpp`): AWB converges normally mid-range
+      (~5067K, not an out-of-range clamp), but the new CCM's much larger off-diagonal
+      coefficients amplify small AWB gray-world residuals by roughly 2.4x (worked the algebra:
+      a small deficit δ in R/B relative to G becomes roughly `+0.7δ` in G and `-1.7δ`/`-1.6δ` in
+      R/B at the output) — a structural gap between AIQ's real-illuminant-keyed calibration and
+      libcamera's 1D-colour-temperature-only interpolation, not a bad file or wrong module.
+      **User's call, 2026-07-27**: keep it live despite the known defect — net improvement on
+      the axis that matters most day-to-day (skin/clothing) outweighs the neutral-surface/
+      highlight regression. Not yet packaged into a `.deb`/changelog entry pending that
+      decision being made durable (see chat).
 - [ ] **s5k3j1 (rear) CCM — attempted and REVERTED 2026-07-22, needs a better approach.**
       Two paper measurements (blinds open at two different amounts, ~8300K and ~12500K
       estimated) showed a small, consistent-direction cast (mild excess red/blue, deficient
@@ -1841,8 +1860,21 @@ on my machine."
       light. Reverted to disabled in `+hi5566` — two blinds-open, near-window samples aren't
       representative enough coverage to leave a CCM on for general use. **Don't re-attempt
       with more ad-hoc paper measurements** — see below.
+      **Re-enabled live 2026-07-27** (not yet packaged/changelog-bumped) with 7 real
+      per-illuminant matrices extracted from `s5k3j1sx04_CJALR11_ADL_PDAF_T2.aiqb` — see
+      `docs/aiqb-cmc-dump-findings.md`. This is real vendor calibration data, not ad-hoc
+      measurement, so the lesson above doesn't block re-attempting — but **module ID is still
+      NOT confirmed** for this physical unit; `CJALR11` is the scoping doc's size-based best
+      guess, sharing identical CCM data with the `1BAA02T3` candidate, while two other
+      candidates give measurably different matrices. Same net result as the `hi556` re-tune
+      done the same day: real improvement on skin/clothing colour, and the same green-cast/
+      magenta-highlight-clip defect, more pronounced here since this file's matrix coefficients
+      are larger in magnitude. User is evaluating live; upstream submission decision (and the
+      module-ID EEPROM read, see the scoping doc's open question 1) both still pending.
 - [ ] **Extract real IQ tuning (CCM, then LSC) from the Intel AIQ `.aiqb` binaries instead of
-      ad-hoc measurement — SCOPED 2026-07-24, see `docs/aiqb-iq-tuning-scoping.md`, not started.**
+      ad-hoc measurement — SCOPED 2026-07-24, Phase 1 (extractor) DONE 2026-07-27, CCM live on
+      both cameras for evaluation (see the `hi556`/`s5k3j1` CCM entries above and
+      `docs/aiqb-cmc-dump-findings.md`). LSC (Phase 4) not started.**
       Prompted by the rear-camera CCM having been measured by hand and reverted the same day
       (`+hi5566`) because two paper samples under one lighting condition didn't generalise, and
       reinforced 2026-07-24 by the user observing a red shirt rendering orange on `hi556` while a
