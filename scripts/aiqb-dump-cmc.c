@@ -80,12 +80,14 @@ static ia_binary_data read_file_as_binary_data(const char *path)
         return bd;
     }
 
-    if (fseek(f, 0, SEEK_END) != 0 || ftell(f) < 0) {
+    long size = -1;
+    if (fseek(f, 0, SEEK_END) == 0)
+        size = ftell(f);
+    if (size < 0) {
         fprintf(stderr, "error: cannot size '%s'\n", path);
         fclose(f);
         return bd;
     }
-    long size = ftell(f);
     rewind(f);
 
     void *buf = malloc((size_t)size);
