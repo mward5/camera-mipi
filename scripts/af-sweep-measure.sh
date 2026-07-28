@@ -34,24 +34,7 @@ systemctl --user stop wireplumber pipewire pipewire.socket 2>/dev/null || true
 killall -9 wireplumber pipewire cam 2>/dev/null || true
 sleep 1
 
-# Media device numbering isn't stable across boots (confirmed 2026-07-22: a
-# USB webcam took /dev/media0, pushing the IPU6 controller to /dev/media1,
-# on a boot where scripts/dell-xps9315-test-rear-dual.sh's hardcoded
-# /dev/media0 default would have silently targeted the wrong device) -
-# find the IPU6 media device by driver name instead of assuming a number.
-MDEV="${MDEV:-}"
-if [ -z "$MDEV" ]; then
-	for d in /dev/media*; do
-		if media-ctl -d "$d" -p 2>/dev/null | grep -q '^driver.*intel-ipu6'; then
-			MDEV="$d"
-			break
-		fi
-	done
-fi
-if [ -z "$MDEV" ]; then
-	echo "Could not find the intel-ipu6 media device among /dev/media*" >&2
-	exit 1
-fi
+source "$(dirname "${BASH_SOURCE[0]}")/lib/find-ipu6-mdev.sh"
 
 LENS=$(media-ctl -d "$MDEV" -e "lc898217 1-0072")
 SENSOR=$(media-ctl -d "$MDEV" -e "s5k3j1 1-0010")
