@@ -93,6 +93,12 @@ cleanup() {
 # this file mid-edit with Agc still missing. Confirmed happening in
 # practice 2026-07-23. Detect and fix it before doing anything else, rather
 # than silently running "locked" when the caller didn't ask for that.
+#
+# All three '^  - Agc:$' checks in this file (here and further below) are
+# an exact-line match, not a real YAML parse - fragile to reformatting the
+# tuning YAML (reindenting, moving Agc onto its own line differently,
+# etc.), which would make this false-negative and trip the self-heal above
+# unnecessarily. Acceptable since this file is only ever hand-edited by us.
 if ! grep -q '^  - Agc:$' "$YAML_PATH"; then
 	echo "WARNING: $YAML_PATH is missing Agc (likely left over from an" >&2
 	echo "  interrupted previous run) - restoring via git checkout before proceeding." >&2

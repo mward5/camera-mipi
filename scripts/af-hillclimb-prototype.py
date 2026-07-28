@@ -121,6 +121,11 @@ def set_ctrls(dev: str, **ctrls):
 
 
 def yaml_has_agc(yaml_path: Path) -> bool:
+    # Exact-line match, not a real YAML parse (no pyyaml on this box, and
+    # this file is only ever hand-edited by us) - fragile to reformatting
+    # the tuning YAML (reindenting, moving Agc onto its own line
+    # differently, etc.), which would make this false-negative and trip
+    # restore_yaml_if_broken()'s "missing Agc" self-heal unnecessarily.
     return any(line.rstrip("\n") == "  - Agc:" for line in yaml_path.open())
 
 
