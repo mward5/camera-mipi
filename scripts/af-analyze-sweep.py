@@ -17,7 +17,9 @@ import glob
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageFilter, ImageStat
+from PIL import Image
+
+from af_metrics import laplacian_variance
 
 CROP_SIZE = 800  # central NxN crop, kept at full sensor resolution (no
                   # resize) since resizing would blur exactly the high-
@@ -30,8 +32,7 @@ def sharpness(path: Path) -> float:
     left = (w - CROP_SIZE) // 2
     top = (h - CROP_SIZE) // 2
     crop = img.crop((left, top, left + CROP_SIZE, top + CROP_SIZE))
-    edges = crop.filter(ImageFilter.FIND_EDGES)
-    return ImageStat.Stat(edges).var[0]
+    return laplacian_variance(crop)
 
 
 def main():

@@ -16,23 +16,9 @@ import csv
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageFilter, ImageStat
+from PIL import Image
 
-SOBEL_X = ImageFilter.Kernel((3, 3), [-1, 0, 1, -2, 0, 2, -1, 0, 1], scale=1, offset=128)
-SOBEL_Y = ImageFilter.Kernel((3, 3), [-1, -2, -1, 0, 0, 0, 1, 2, 1], scale=1, offset=128)
-_SQUARE_LUT = [min(255, ((p - 128) ** 2) // 64) for p in range(256)]
-
-
-def laplacian_variance(img_l: Image.Image) -> float:
-    edges = img_l.filter(ImageFilter.FIND_EDGES)
-    return ImageStat.Stat(edges).var[0]
-
-
-def tenengrad(img_l: Image.Image) -> float:
-    gx = img_l.filter(SOBEL_X).point(_SQUARE_LUT)
-    gy = img_l.filter(SOBEL_Y).point(_SQUARE_LUT)
-    combined = ImageChops.add(gx, gy)
-    return ImageStat.Stat(combined).sum[0]
+from af_metrics import laplacian_variance, tenengrad
 
 
 def main():

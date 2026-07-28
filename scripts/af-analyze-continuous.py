@@ -22,13 +22,13 @@ import re
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageFilter, ImageStat
+from PIL import Image
+
+from af_metrics import laplacian_variance
 
 
 def sharpness(path: Path) -> float:
-    img = Image.open(path).convert("L")
-    edges = img.filter(ImageFilter.FIND_EDGES)
-    return ImageStat.Stat(edges).var[0]
+    return laplacian_variance(Image.open(path).convert("L"))
 
 
 def parse_capture_log(log_path: Path):
