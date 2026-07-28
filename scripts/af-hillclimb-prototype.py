@@ -196,10 +196,11 @@ class FrameWatcher:
     tagged with this process's own wall-clock time when it notices it.
     """
 
-    def __init__(self, outdir: Path, poll_interval: float = 0.02):
+    def __init__(self, outdir: Path, poll_interval: float = 0.02, log_print=print):
         self.outdir = outdir
         self.poll_interval = poll_interval
         self.next_seq = 0
+        self.log_print = log_print
 
     def _path_for(self, seq: int) -> Path:
         return self.outdir / f"frame-cam0-stream0-{seq:06d}.ppm"
@@ -227,9 +228,15 @@ class FrameWatcher:
                     try:
                         sh = sharpness(path)
                         break
-                    except Exception:
+                    except Exception as e:
+                        self.log_print(f"WARNING: {path} unreadable on attempt "
+                                        f"{attempt + 1}/3 ({e!r}), retrying...")
                         time.sleep(0.03)
                 else:
+                    self.log_print(f"ERROR: {path} never became readable after "
+                                    "3 attempts - treating as a dropped frame, "
+                                    "not a timeout")
+                    self.next_seq += 1
                     return None
                 seq = self.next_seq
                 self.next_seq += 1
@@ -281,7 +288,14 @@ def settle_and_read(watcher: FrameWatcher, log_rows, tolerance=0.02,
 def coarse_fine_scan(lens_dev, watcher, log_rows, coarse_step, fine_step,
                       settle_kwargs, log_print):
     samples = []
-    for pos in range(FOCUS_MIN, FOCUS_MAX + 1, coarse_step):
+    # range()'s step arithmetic doesn't necessarily land on FOCUS_MAX (e.g.
+    # step=96 stops at 960, never sampling 1009-1023) - append it explicitly
+    # so a true peak near the top of the range is never structurally
+    # unreachable, without double-sampling when the range already hits it.
+    coarse_positions = list(range(FOCUS_MIN, FOCUS_MAX + 1, coarse_step))
+    if coarse_positions[-1] != FOCUS_MAX:
+        coarse_positions.append(FOCUS_MAX)
+    for pos in coarse_positions:
         actual = set_focus(lens_dev, pos)
         mean_sh, settled, n = settle_and_read(watcher, log_rows, **settle_kwargs)
         samples.append((actual, mean_sh))
@@ -291,8 +305,12 @@ def coarse_fine_scan(lens_dev, watcher, log_rows, coarse_step, fine_step,
 
     fine_lo = max(FOCUS_MIN, coarse_best - coarse_step)
     fine_hi = min(FOCUS_MAX, coarse_best + coarse_step)
+    # Same range()-endpoint gap as above, this time against fine_hi.
+    fine_positions = list(range(fine_lo, fine_hi + 1, fine_step))
+    if fine_positions[-1] != fine_hi:
+        fine_positions.append(fine_hi)
     fine_samples = []
-    for pos in range(fine_lo, fine_hi + 1, fine_step):
+    for pos in fine_positions:
         actual = set_focus(lens_dev, pos)
         mean_sh, settled, n = settle_and_read(watcher, log_rows, **settle_kwargs)
         fine_samples.append((actual, mean_sh))
@@ -394,7 +412,7 @@ def main():
              "--capture",
              f"--file={outdir / 'frame-#.ppm'}"],
             stdout=camlog, stderr=subprocess.STDOUT, env=env)
-        watcher = FrameWatcher(outdir)
+        watcher = FrameWatcher(outdir, log_print=log_print)
 
         settle_desc = ("stream/lens settle, AGC locked" if args.lock_agc
                        else "stream startup + AGC settle")
