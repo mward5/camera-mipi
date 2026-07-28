@@ -115,17 +115,58 @@ static ia_binary_data read_file_as_binary_data(const char *path)
 static int find_inner_aiqb_blob(const ia_binary_data *file, ia_binary_data *out)
 {
     const unsigned char *data = file->data;
+    int have_fallback = 0;
+    unsigned int fallback_offset = 0, fallback_size = 0;
+
     for (unsigned int i = 0; i + 8 <= file->size; i++) {
-        if (memcmp(data + i, "AIQB", 4) == 0) {
-            unsigned int inner_size;
-            memcpy(&inner_size, data + i + 4, 4);
-            if ((unsigned long)i + inner_size > file->size)
-                continue; /* declared size doesn't fit -- not the real tag */
-            out->data = (void *)(data + i);
-            out->size = inner_size;
-            return 1;
+        if (memcmp(data + i, "AIQB", 4) != 0)
+            continue;
+
+        unsigned int inner_size;
+        memcpy(&inner_size, data + i + 4, 4);
+        if ((unsigned long)i + inner_size > file->size)
+            continue; /* declared size doesn't fit -- not the real tag */
+
+        /* Per this function's own header-layout comment, the 12 bytes
+         * after the size field are reserved. Every real header seen so
+         * far (all six of Dell's own s5k3j1/hi556 .aiqb files) is
+         * all-zero there; a match with nonzero bytes there is more
+         * likely an incidental "AIQB" byte sequence inside a preceding
+         * sub-block's opaque payload than the real directory entry.
+         * Prefer an all-zero match over the first size-fits match. */
+        if (i + 20 <= file->size) {
+            int reserved_zero = 1;
+            for (int r = 0; r < 12; r++) {
+                if (data[i + 8 + r] != 0) {
+                    reserved_zero = 0;
+                    break;
+                }
+            }
+            if (reserved_zero) {
+                out->data = (void *)(data + i);
+                out->size = inner_size;
+                return 1;
+            }
+        }
+        if (!have_fallback) {
+            have_fallback = 1;
+            fallback_offset = i;
+            fallback_size = inner_size;
         }
     }
+
+    if (have_fallback) {
+        fprintf(stderr,
+                "warning: \"AIQB\" match at offset %u has nonzero (or "
+                "unreadable) reserved bytes -- using it anyway since no "
+                "cleaner match was found, but this could be an incidental "
+                "byte match rather than the real directory entry\n",
+                fallback_offset);
+        out->data = (void *)(data + fallback_offset);
+        out->size = fallback_size;
+        return 1;
+    }
+
     return 0;
 }
 
