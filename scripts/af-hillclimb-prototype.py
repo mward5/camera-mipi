@@ -68,34 +68,28 @@ import sys
 import time
 from pathlib import Path
 
-from PIL import Image, ImageChops, ImageFilter, ImageStat
+from PIL import Image
+
+from af_metrics import tenengrad
 
 FOCUS_MIN = 0
 FOCUS_MAX = 1023
 
-# Tenengrad-style gradient energy, matching scripts/af-compare-metrics.py.
-# Approximate (clips at 255 per pixel before combining Gx/Gy) but empirically
-# validated against actual frame content, unlike the Laplacian-variance
-# metric this replaced - see the module docstring.
-_SOBEL_X = ImageFilter.Kernel((3, 3), [-1, 0, 1, -2, 0, 2, -1, 0, 1], scale=1, offset=128)
-_SOBEL_Y = ImageFilter.Kernel((3, 3), [-1, -2, -1, 0, 0, 0, 1, 2, 1], scale=1, offset=128)
-_SQUARE_LUT = [min(255, ((p - 128) ** 2) // 64) for p in range(256)]
-
 
 def sharpness(path: Path) -> float:
-    img = Image.open(path).convert("L")
-    gx = img.filter(_SOBEL_X).point(_SQUARE_LUT)
-    gy = img.filter(_SOBEL_Y).point(_SQUARE_LUT)
-    combined = ImageChops.add(gx, gy)
-    return ImageStat.Stat(combined).sum[0]
+    """Tenengrad gradient energy - empirically validated against actual
+    frame content, unlike the Laplacian-variance metric this replaced. See
+    the module docstring above."""
+    return tenengrad(Image.open(path).convert("L"))
 
 
-def find_ipu6_media_device() -> str:
+def find_ipu6_media_device(log_print=print) -> str:
     for dev in sorted(Path("/dev").glob("media*")):
         try:
             out = subprocess.run(["media-ctl", "-d", str(dev), "-p"],
                                   capture_output=True, text=True, timeout=5).stdout
-        except Exception:
+        except Exception as e:
+            log_print(f"WARNING: media-ctl probe of {dev} failed: {e!r}")
             continue
         if "driver" in out and "intel-ipu6" in out:
             return str(dev)
@@ -370,7 +364,7 @@ def main():
                     capture_output=True)
     time.sleep(1)
 
-    mdev = find_ipu6_media_device()
+    mdev = find_ipu6_media_device(log_print)
     lens_dev = resolve_entity(mdev, "lc898217 1-0072")
     sensor_dev = resolve_entity(mdev, "s5k3j1 1-0010")
     log_print(f"MDEV={mdev} lens={lens_dev} sensor={sensor_dev}")
