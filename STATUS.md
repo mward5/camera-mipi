@@ -843,17 +843,25 @@ on my machine."
       remain. `dev_dbg()` calls left in place (compile/runtime-gated, legitimate).
 - [x] `TPS68470_VCM`'s `.always_on = 1` diagnostic hack — done 2026-07-15, see "VCM driver"
       section above.
-- [ ] Decide eventual upstream submission targets: `ipu-bridge.c`'s DMI-gated i2c quirk
-      and the TPS68470 board data are plausible mainline-kernel candidates once cleaned
-      up; the `s5k3j1.c` PDAF/dual-stream work may be more appropriate for Intel's
-      `ipu6-drivers` out-of-tree package given how novel the dual-stream pattern is (no
-      existing IPU6 driver does this).
-- [x] `~/work/git-ubuntu/resolute` is now a working, exact-tag-matched clone of the
-      canonical Ubuntu kernel git tree (`Ubuntu-7.0.0-27.27` — matches the currently
-      running kernel exactly, fixed 2026-07-14). It supersedes the old apt-source tree
-      for anything needing precise upstream comparison, since apt-source snapshots are
-      easy to let go stale silently (which is what happened before). Use this as the
-      rebase target for the item above.
+- [x] Decide eventual upstream submission targets — resolved by actually doing the
+      real-lineage fork, not just deciding: `ipu-bridge.c`/`tps68470_board_data.c`/
+      `ipu6-isys-csi2.c` now live as real commits on a `resolute` fork
+      (`~/work/git-ubuntu/resolute`, branch `dell-xps9315-2in1`); `s5k3j1.c` on a real
+      `intel/ipu6-drivers` fork (`~/work/intel/ipu6-drivers`, branch
+      `dell-xps9315-s5k3j1`). **Real, valuable side-finding**: real upstream Ubuntu
+      already has its own S5K3J1 SAUCE patch (`3c095f789fe1`, Intel's Jimmy Su) with
+      the exact same wrong 848MHz link-frequency bug this project found and fixed —
+      our fix is genuine feedback against a real, named engineer's patch, not just a
+      personal workaround. Full detail in `~/.claude/plans/final-refinement-pass-for-glimmering-squid.md`
+      (Part 2.2) and the `project-s5k3j1-kernel-fork-surgery` memory. Still pending:
+      creating the actual GitHub repos, pushing, and wiring them into this repo as
+      submodules (needs the user's go-ahead per the "review before push" convention).
+- [x] `~/work/git-ubuntu/resolute` is a working, exact-tag-matched clone of the
+      canonical Ubuntu kernel git tree (now at `Ubuntu-7.0.0-28.28`, matching the
+      currently running kernel; updated 2026-07-29, was `27.27`). It supersedes the
+      old apt-source tree for anything needing precise upstream comparison, since
+      apt-source snapshots are easy to let go stale silently (which is what happened
+      before). This was the rebase target for the item above.
 
 ## Attribution
 
