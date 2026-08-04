@@ -73,26 +73,61 @@ Reverse-engineering and building working Linux driver support for the cameras on
 
 ## Building
 
+Two halves are needed for a fully working rear camera with real AF/AGC: the kernel
+drivers (this repo) and a patched `libcamera` (published separately, see below). Both
+steps need `linux-headers-$(uname -r)` installed first.
+
+### 1. Kernel drivers
+
 ```
-git clone --recurse-submodules <this repo's URL>
+git clone --recurse-submodules https://github.com/mward5/camera-mipi.git
 cd camera-mipi
-bash scripts/install-custom-modules.sh
+sudo apt install dkms   # if not already installed
+bash scripts/install-dkms.sh
 ```
 
-Prerequisites: `linux-headers-$(uname -r)` installed (the script checks and tells you if
-it's missing). Reboot afterward — this ensures a genuinely clean ACPI/fwnode state rather
-than relying on `insmod`/`rmmod` cycling, which silently no-ops some of these fixes (see
-the script's own comments for why). To revert, see the script's own printed instructions
-at the end of a successful run.
+This is the recommended path: it registers the drivers with DKMS (Dynamic Kernel Module
+Support), which rebuilds them automatically on future kernel upgrades (`apt upgrade`
+installing a new kernel just works, no manual re-run needed). Prefer a one-shot manual
+build instead?
+`bash scripts/install-custom-modules.sh` does the same builds without registering with
+DKMS — you'd need to re-run it yourself after every kernel upgrade.
+
+**Secure Boot**: if it's enabled, kernel modules must be signed to load. DKMS handles
+this automatically using your system's existing Secure Boot key (`mokutil --sb-state`
+checks whether it's on) — if you've already enrolled a MOK for any other out-of-tree
+module (VirtualBox, `acpi-call`, etc.), that same key gets reused with nothing further
+to do. If this is your first time, DKMS generates a new key and `install-dkms.sh` tells
+you exactly what to run (`mokutil --import ...`) and what to expect at the next reboot
+(a one-time "MOK Manager" enrollment screen — inherent to how Secure Boot works, not
+something any script can skip). On Secure Boot-disabled systems none of this applies.
+
+Either script: reboot afterward — this ensures a genuinely clean ACPI/fwnode state
+rather than relying on `insmod`/`rmmod` cycling, which silently no-ops some of these
+fixes (see the scripts' own comments for why). To revert, see each script's own printed
+instructions at the end of a successful run.
 
 All quirks in `drivers/linux-xps9315-2in1/` and `drivers/ipu6-drivers/` are gated on an
 exact DMI model match (and, where relevant, ACPI HID) — safe to build and run this on
 unrelated hardware; the quirks simply won't activate.
 
-This covers the kernel side only. Real continuous autofocus and the autoexposure/colour
-fixes described above live in `libcamera`'s software ISP, published separately at
-`mward5/libcamera` (branch `xps-9315-2-in-1-cameras`) — both halves are needed for a fully
-working rear camera with real AF/AGC. See that repo's own build/install instructions.
+### 2. libcamera
+
+Published separately at [`mward5/libcamera`](https://github.com/mward5/libcamera)
+(branch `xps-9315-2-in-1-cameras`). Two ways to get it:
+
+- **Prebuilt, attested `.deb`s** (recommended): download the latest
+  [release](https://github.com/mward5/libcamera/releases), built and
+  [attested](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds)
+  by GitHub Actions directly from that repo's source — verify provenance with
+  `gh attestation verify <file> --owner mward5` before installing, then
+  `sudo dpkg -i *.deb`.
+- **Build it yourself**: see that repo's own build instructions (standard
+  `dpkg-buildpackage`/`meson` package build).
+
+After installing, restart the relevant services (`systemctl --user restart pipewire
+wireplumber`, or `sudo systemctl restart pipewire wireplumber` depending on your setup)
+to pick up the new libcamera.
 
 ## Not fixed / known dead ends
 
