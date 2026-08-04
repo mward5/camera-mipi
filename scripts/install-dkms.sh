@@ -76,17 +76,27 @@ sudo update-initramfs -u -k "$(uname -r)"
 
 echo
 if mokutil --sb-state 2>/dev/null | grep -qi "SecureBoot enabled"; then
-	if [[ -f /var/lib/dkms/mok.pub ]] && ! mokutil --test-key /var/lib/dkms/mok.pub 2>/dev/null | grep -qi "is already in db"; then
-		echo "=== Secure Boot is ON and DKMS generated a new signing key that isn't enrolled yet. ==="
+	# Ubuntu's dkms defaults to signing with the system's shared shim-signed
+	# MOK (/var/lib/shim-signed/mok/) rather than generating its own
+	# dkms-specific key at /var/lib/dkms/mok.pub - confirmed live on this
+	# machine (a real `dkms build` used /var/lib/shim-signed/mok/MOK.priv
+	# with no per-package configuration needed). One enrolled MOK signs
+	# modules from any DKMS package; if you've already enrolled one for
+	# another out-of-tree module (acpi-call, VirtualBox, etc.), this reuses
+	# it automatically and there is nothing further to enroll.
+	SIGN_KEY_PUB="/var/lib/shim-signed/mok/MOK.der"
+	[[ -f "$SIGN_KEY_PUB" ]] || SIGN_KEY_PUB="/var/lib/dkms/mok.pub"
+	if [[ -f "$SIGN_KEY_PUB" ]] && ! mokutil --test-key "$SIGN_KEY_PUB" 2>/dev/null | grep -qi "is already enrolled"; then
+		echo "=== Secure Boot is ON and the signing key ($SIGN_KEY_PUB) isn't enrolled yet. ==="
 		echo "One-time step needed before the modules will actually load:"
-		echo "  sudo mokutil --import /var/lib/dkms/mok.pub"
+		echo "  sudo mokutil --import $SIGN_KEY_PUB"
 		echo "(it will ask you to set a temporary password - remember it)"
 		echo "then reboot. At boot you'll see a blue \"MOK Manager\" screen -"
 		echo "choose \"Enroll MOK\" -> \"Continue\" -> \"Yes\", enter that password,"
 		echo "then let it reboot normally. This only happens once; every future"
 		echo "kernel upgrade's DKMS rebuild will already be trusted."
 	else
-		echo "=== Secure Boot is ON; DKMS's signing key is already enrolled - nothing extra needed. ==="
+		echo "=== Secure Boot is ON; the signing key is already enrolled - nothing extra needed. ==="
 	fi
 else
 	echo "=== Secure Boot is off - modules install and load directly, no signing step needed. ==="
