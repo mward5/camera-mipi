@@ -12,17 +12,10 @@ Reverse-engineering and building working Linux driver support for the cameras on
 - **Front camera**: OmniVision `HI556`, ACPI `INT3537` — works via mainline `hi556.c`, no
   kernel changes needed. Its `libcamera` image-quality tuning (autoexposure, colour) has
   had substantial work in this project even though the kernel driver is untouched — see
-  "Userspace work" below.
+  "Building" below.
 - **IR/Windows Hello camera**: `OG0VA1B`, ACPI `OVTI00AB` — not yet attempted; groundwork
   only (see `docs/windows-agent-findings-2026-07-13.md`). Simpler target than the rear
   camera (no PDAF/VCM).
-
-## Goals
-
-1. Get the rear S5K3J1 camera producing a working video stream, ideally with autofocus.
-   **Done** — see [`STATUS.md`](STATUS.md) for the current image-quality/polish work.
-2. Get this organized and documented well enough to be useful to other owners of this
-   laptop model, not just as personal notes.
 
 ## Layout
 
@@ -30,7 +23,7 @@ Reverse-engineering and building working Linux driver support for the cameras on
   normal, diffable commits against exact upstream history (not flat/disconnected copies —
   see "Building" below for how they fit together):
   - `linux-xps9315-2in1/` — a fork of Ubuntu's `resolute` kernel, branched from the exact
-    tag this project tests against (`Ubuntu-7.0.0-28.28`). Real in-tree commits, each DMI+HID
+    tag this project tests against (`Ubuntu-7.0.0-29.29`). Real in-tree commits, each DMI+HID
     quirk-gated to this laptop:
     - `drivers/media/pci/intel/ipu-bridge.c` — an ACPI i2c-instantiation fix for the rear
       camera's ACPI link, the VCM `_CRS` resource-index fix (this board has 3 I2C resources
