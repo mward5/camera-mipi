@@ -1,7 +1,9 @@
-# Each of these is its own independent git repo (real history, kept
-# separate on purpose) - not tracked as submodules here, just excluded so
-# `git add` doesn't turn them into gitlink entries.
-/drivers/
+# Superseded by the 3 real-lineage forks now wired in as submodules under
+# /drivers/ (linux-xps9315-2in1, ipu6-drivers, lc898217) - these directories
+# hold the original, pre-fork development history for the 4 drivers that got
+# folded into those forks (ipu-bridge, int3472-tps68470, s5k3j1, ipu6-isys).
+# Kept on disk for reference, not published.
+/archived-pre-fork-drivers/
 
 # 433MB of Dell/Intel proprietary Windows driver binaries (.sys, firmware,
 # installers) - kept on disk for reverse-engineering reference, not in git.

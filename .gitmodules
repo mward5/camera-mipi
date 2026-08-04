@@ -1,0 +1,9 @@
+[submodule "drivers/lc898217"]
+	path = drivers/lc898217
+	url = https://github.com/mward5/lc898217.git
+[submodule "drivers/linux-xps9315-2in1"]
+	path = drivers/linux-xps9315-2in1
+	url = https://github.com/mward5/linux-xps9315-2in1.git
+[submodule "drivers/ipu6-drivers"]
+	path = drivers/ipu6-drivers
+	url = https://github.com/mward5/ipu6-drivers-xps9315-2in1.git
