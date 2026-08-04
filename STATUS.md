@@ -852,16 +852,20 @@ on my machine."
       already has its own S5K3J1 SAUCE patch (`3c095f789fe1`, Intel's Jimmy Su) with
       the exact same wrong 848MHz link-frequency bug this project found and fixed —
       our fix is genuine feedback against a real, named engineer's patch, not just a
-      personal workaround. Full detail in `~/.claude/plans/final-refinement-pass-for-glimmering-squid.md`
-      (Part 2.2) and the `project-s5k3j1-kernel-fork-surgery` memory. Still pending:
-      creating the actual GitHub repos, pushing, and wiring them into this repo as
-      submodules (needs the user's go-ahead per the "review before push" convention).
+      personal workaround. **Published 2026-08-04**: all 5 repos are live and public
+      under `github.com/mward5` — `libcamera`, `linux-xps9315-2in1` (the `resolute`
+      fork, rebased onto `Ubuntu-7.0.0-29.29` to match the kernel upgrade; pushed as a
+      shallow synthetic-root commit rather than the full 3GB kernel history, by
+      request), `ipu6-drivers-xps9315-2in1`, `lc898217`, and `camera-mipi` itself with
+      the 3 driver forks wired in as real submodules under `drivers/`. Full detail in
+      `~/.claude/plans/final-refinement-pass-for-glimmering-squid.md` (Part 2.2, now
+      closed out) and the `project-s5k3j1-kernel-fork-surgery` memory.
 - [x] `~/work/git-ubuntu/resolute` is a working, exact-tag-matched clone of the
-      canonical Ubuntu kernel git tree (now at `Ubuntu-7.0.0-28.28`, matching the
-      currently running kernel; updated 2026-07-29, was `27.27`). It supersedes the
-      old apt-source tree for anything needing precise upstream comparison, since
-      apt-source snapshots are easy to let go stale silently (which is what happened
-      before). This was the rebase target for the item above.
+      canonical Ubuntu kernel git tree (now at `Ubuntu-7.0.0-29.29`, matching the
+      kernel the user is installing as of 2026-08-04; was `28.28`, before that `27.27`).
+      It supersedes the old apt-source tree for anything needing precise upstream
+      comparison, since apt-source snapshots are easy to let go stale silently (which
+      is what happened before). This was the rebase target for the item above.
 
 ## Attribution
 
