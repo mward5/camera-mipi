@@ -1,0 +1,8 @@
+id_prefix: SQ
+id_strategy: random
+seq_next: 1
+seq_width: 4
+tone: dcc
+auto_trailer: true
+require_quest: false
+local_only: false
