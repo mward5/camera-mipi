@@ -37,16 +37,18 @@ breakage.
   (`tnr_6_0`) plus Bayer NR on this exact camera in all 74 processed graph presets.
   Upstream libcamera has no soft-ISP denoise either, so this is open ground. Scoped as
   WP5 in `docs/pdaf-implementation-plan.md`, independent of the PDAF work.
-- **Intel HAL / PSYS path ("Phase 2")** — **assessed as a dead end 2026-09-14**, see WP4
-  in `docs/pdaf-implementation-plan.md`. Not for the reason expected: the graph settings
-  file for this sensor turns out to be Apache-2.0 and already in hand (Dell ships Intel's
-  own file; the HI556 one is byte-identical to Intel's public Linux copy), and the `.aiqb`
-  already parses against Intel's Linux parser. The real blocker is that `intel-ipu6-psys`
-  was never mainlined, is reported broken from kernel 6.16, and Intel's own `patch/v7.0/`
-  set contains nothing for it. Note that mainline itself creates the PSYS device, maps the
-  firmware into it and builds its package directory at every probe - the processing
-  firmware is loaded and idle, with no driver bound, because that driver was never
-  mainlined. The gap is a maintained driver, not a missing capability.
+- **Intel HAL / PSYS path ("Phase 2")** — **open, not a dead end** (an earlier same-day
+  assessment called it dead; that was wrong and unverified). Measured 2026-09-14 on
+  7.0.0-31-generic: `intel_ipu6_psys` is **loaded, bound and probed** (`pkg_dir entry
+  count:8`, `psys probe minor: 0`), `/dev/ipu-psys0` exists, and Canonical ships it signed
+  in `linux-main-modules-ipu6-7.0.0-31-generic` 7.0.0-31.31+2. Intel's `origin/master`
+  PSYS source also builds clean against 7.0.0-31 headers (recipe in the plan's WP4;
+  artifact at `~/work/ipu6-psys-buildtest_output/`). The graph settings for this sensor are
+  Apache-2.0 and in hand, and the Dell `.aiqb` already parses with Intel's Linux parser. The
+  one real remaining cost is that the path bypasses libcamera entirely. Untested: whether
+  `ipu6-camera-hal` builds/runs here, what `IPU6 in secure mode` restricts, and whether the
+  ISA actually improves the image enough to be worth it. See WP4 in
+  `docs/pdaf-implementation-plan.md`.
 - **PDAF** — **planned 2026-09-14, see `docs/pdaf-implementation-plan.md`.** The
   2026-07 "blocked by `V4L2_SUBDEV_ROUTING_ONLY_1_TO_1`" conclusion was a
   misdiagnosis: that flag only forbids fan-in/fan-out, and mainline ISYS already

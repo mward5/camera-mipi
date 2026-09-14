@@ -30,11 +30,11 @@ and libcamera already ships a mature hybrid PDAF+CDAF control law in the Raspber
 Goal: a two-phase plan with a real chance of upstream acceptance.
 - **Phase 1** — fully open stack: mainline-derived kernel + libcamera simple pipeline + soft ISP.
   This is where all the real work is. WP0 through WP3, plus WP5.
-- **Phase 2** — the Intel `intel/ipu6-drivers` (DKMS) stack. **Reassessed as a dead end for
-  this machine** (WP4): the processing-system driver that would be the whole point of taking
-  that path is unmaintained on kernels this new, and for this sensor it would not provide
-  phase-detect processing anyway (Finding 5). Reduced to one bounded experiment, a write-up,
-  and upstream pull requests that stand on their own merit.
+- **Phase 2** — the Intel `intel/ipu6-drivers` (DKMS) stack. **Open, not a dead end** (WP4).
+  An earlier revision of this plan called it dead on the grounds that the processing-system
+  driver is unmaintained at this kernel version. That was wrong and unverified: Canonical ships
+  a signed `intel-ipu6-psys`, and it is loaded, bound and probed on this machine now. The
+  remaining cost is that the path bypasses libcamera entirely, not that it is unavailable.
 
 Two findings drove the revision. The 2026-07-22 attempt was abandoned on a diagnosis that turns
 out to be wrong (Finding 1). And the noise the user sees has a separate, measurable cause with
@@ -424,71 +424,98 @@ the PDAF extension.
    discovery, (c) simple-pipeline aux stream, (d) PDAF correlator + hybrid AF. Each
    independently useful; (a) can go now.
 
-## WP4 — Phase 2 reassessed: a dead end as an implementation target, worth one bounded experiment
+## WP4 — Phase 2 REOPENED: the processing system is alive on this machine (corrected twice)
 
-**Verdict: do not plan to ship the Intel HAL stack on this machine.** The blocking reason is not
-the one originally assumed. Two of the three supposed blockers dissolved on inspection; the one
-that remains is the fatal one.
+**Correction history, recorded rather than rewritten.** This section first said Phase 2 was a
+dead end because `intel-ipu6-psys` is unmaintained and broken on modern kernels. **That is false
+on this machine, and it was never verified before being written.** It came from community reports
+about kernels 6.16 to 6.19 and from the absence of PSYS patches in Intel's `patch/v7.0/` set.
+Both observations are real; the conclusion drawn from them was not.
 
-What turned out *not* to block it:
+**Measured on 7.0.0-31-generic, 2026-09-14:**
 
-- **Graph settings** — we hold an Apache-2.0 file for this exact module, and proved the format is
-  identical across operating systems (Finding 6).
-- **Tuning data** — the Dell `.aiqb` already parses against Intel's Linux parser
-  (`docs/aiqb-cmc-dump-findings.md`). Redistribution licence is open; local use is not in doubt.
+| Check | Result |
+|---|---|
+| `intel_ipu6_psys` loaded | yes, refcount 0 |
+| Bound to the auxiliary device | yes, `intel_ipu6.psys.40` |
+| Probe result in the journal | `pkg_dir entry count:8`, `psys probe minor: 0` |
+| Character device | `/dev/ipu-psys0`, 509:0 |
+| Shipped by | `linux-main-modules-ipu6-7.0.0-31-generic` 7.0.0-31.31+2 |
+| Module path | `/usr/lib/modules/7.0.0-31-generic/ubuntu/dkms/ipu6/intel-ipu6-psys.ko.zst` |
+| Signed by | Canonical Ltd. Kernel Module Signing |
 
-What does block it:
+Canonical builds this driver from the DKMS source into a signed in-tree module and ships it in
+lockstep with every kernel ABI bump. It has been probed and running on this laptop since the
+12 September boot. The firmware package directory was read successfully, which means the
+processing firmware loaded into the processing system and the driver agreed with it about its
+eight components.
 
-- **The processing system is the abandoned half of the driver.** It was never merged upstream and
-  Intel treats the hardware interface and the ISP algorithms as proprietary. Reports have the
-  DKMS modules failing to build from kernel 6.16 onward, with suspend/resume broken from 6.16 and
-  no upstream fix. This machine runs 7.0.0-31. Intel's own `patch/v7.0/` set in `ipu6-drivers`
-  contains seven patches, all for `ipu-bridge`, INT3472 and sensor drivers, and **none** for
-  PSYS. Their `dkms.conf` builds `intel-ipu6-psys` with no kernel-version guard at all, while
-  gating nine other modules on versions, which reads as nobody testing that boundary.
-- **It replaces libcamera rather than extending it.** The HAL path runs through `icamerasrc` on
-  GStreamer. The exposure work, the colour matrices, the CDAF algorithm and the PipeWire and
-  desktop integration would all be bypassed, and PDAF would move inside a closed library where we
-  could neither tune nor debug it.
-- **The prize is real, which makes the experiment worth running but changes nothing about the
-  blocker.** Finding 5 (corrected) shows the processing system does run a hardware PAF statistics
-  kernel for this sensor, alongside a full hardware ISP. Note what mainline already does at
-  probe in `ipu6.c`: it creates the PSYS auxiliary device (`ipu6_psys_init`, line 618), maps the
-  firmware image into it (`ipu6_buttress_map_fw_image`, line 636) and builds its package
-  directory (`ipu6_cpd_create_pkg_dir`, line 643). The processing firmware is therefore loaded
-  and sitting idle on every boot, with no driver bound to that auxiliary device, because the
-  driver that would bind it was never mainlined. The gap is a maintained driver, not a missing
-  capability and not missing data.
+**Independently, Intel's `origin/master` PSYS source builds clean against 7.0.0-31 headers.**
+Recipe, confirmed working, which the DKMS config does not spell out:
 
-The ecosystem has moved the same way, which is context rather than proof: mainline carries the
-Input System from 6.10, libcamera's simple pipeline has supported it since 0.3.2, Ubuntu ships
-signed in-kernel ipu6 modules (`linux-main-modules-ipu6-7.0.0-*` are installed here), and
-`intel-ipu6-dkms` remains in `resolute/universe` only at a March 2026 snapshot,
-`0~git202603270946.51fe7248`, the same upstream commit this project's sensor fork is based on.
+```
+git -C <ipu6-drivers> archive origin/master | tar x -C <builddir>
+cd <builddir> && patch -p1 < patches/0001-v6.10-IPU6-headers-used-by-PSYS.patch
+make -C /lib/modules/$(uname -r)/build M=<builddir>/drivers/media/pci/intel/ipu6/psys \
+  CONFIG_VIDEO_INTEL_IPU6=m EXTERNAL_BUILD=1 \
+  ccflags-y="-I<builddir>/include -I<builddir>/drivers/media/pci/intel/ipu6 \
+             -I<builddir>/drivers/media/pci/intel" modules
+```
 
-**Correct characterisation of the open-source path**: the kernel uses the IPU6 as a CSI-2
-receiver and a DMA engine, nothing more. On IPU6 every processing block — Bayer noise reduction,
-demosaic, colour, temporal noise reduction, geometric correction, scalers — lives in the
-processing system, so "receive and pass through to memory" is an accurate description of what the
-in-kernel driver does. That is not a design preference; it is the consequence of the processing
-half being undocumented, firmware-driven and closed.
+All ten objects compile, link and pass MODPOST; `vermagic` matches the running kernel exactly.
+The build product is kept at `~/work/ipu6-psys-buildtest_output/intel-ipu6-psys.ko`. Its
+`srcversion` is `A75828D2B87995661B11D0E` against Canonical's `A2DCB27B28F4396A95385CF`, so
+Canonical carries local changes to the driver; worth diffing before modifying it.
 
-**What to actually do (time-boxed, half a day, optional):**
+Secure Boot is **disabled** on this machine, so an unsigned local build would load. Swapping
+Canonical's module for the local one has not been done, because the load question is already
+answered by the running system and the swap risks nothing but gains nothing either. Do it only
+if the driver itself ever needs modifying.
 
-1. One experiment worth running, because it is cheap and settles the question permanently: does
-   `intel-ipu6-psys` build and load at all on 7.0.0-31? Build it alone from the fork, try to load
-   it, read `dmesg`. Record the answer in `docs/pdaf-intel-hal.md`.
-2. If it loads, one further bounded test: drop the Apache-2.0 s5k3j1 graph settings and the Dell
-   `.aiqb` into a HAL build and see whether `libgcss` accepts the file version against Intel's
-   ipu6ep descriptor. Stop there. Do not build out an `icamerasrc` pipeline.
-3. Either way, write `docs/pdaf-intel-hal.md` with the finding and close Phase 2. If step 1
-   fails, that document is the deliverable and the phase is formally dead.
-4. Independent of the above, still submit the WP2 sensor patch to `intel/ipu6-drivers` as a pull
-   request, and send the 512 MHz link-frequency fix as its own earlier pull request. Those are
-   valuable to that project regardless of whether we ever run their userspace.
-5. Optionally file an issue against `intel/ipu6-camera-bins` asking for published `s5k3j1`
-   tuning, noting that the graph settings are already Apache-2.0. Low expected value now that
-   PSYS is the real blocker, but it costs nothing and documents the gap for others.
+### What Phase 2 actually requires now
+
+The kernel half is **done and shipped**. Of the four blockers this plan previously listed, three
+have fallen:
+
+1. ~~Graph settings unavailable~~ — Apache-2.0 and in hand (Finding 6).
+2. ~~Tuning data unavailable~~ — the Dell `.aiqb` parses against Intel's Linux parser
+   (`docs/aiqb-cmc-dump-findings.md`).
+3. ~~Processing-system driver unmaintained and unbuildable~~ — false here; shipped, signed,
+   loaded, probed.
+4. **Still true: it bypasses libcamera.** The Intel path runs `ipu6-camera-hal` under
+   `icamerasrc` on GStreamer. The exposure work, colour matrices, CDAF algorithm and the
+   PipeWire and desktop integration do not apply to it, and the autofocus control law would move
+   inside a closed library.
+
+Genuinely unknown, and the next things to find out:
+
+- Does `ipu6-camera-hal` build and run against this kernel's interface? Both it and
+  `ipu6-camera-bins` are already cloned under `~/work/intel/`.
+- The journal reports `IPU6 in secure mode`. What that permits or forbids for processing-system
+  submissions is not understood and should be checked before assuming the path is open.
+- Does the HAL tolerate a sensor whose kernel driver it does not know, given that the graph and
+  tuning are supplied? The `s5k3j1` is absent from the HAL's own sensor configuration.
+- Does the ISA actually improve the image enough to be worth the integration cost?
+
+### Recommended sequencing
+
+Phase 2 is now a real option rather than a dead end, but it is still the *larger* and more
+disruptive of the two routes to better image quality, and it forfeits work that already exists
+and is shipped. **WP5 remains the recommended first move for the noise problem**: it is smaller,
+keeps the libcamera stack, and is upstreamable. Treat Phase 2 as a parallel investigation with
+its own bounded steps:
+
+1. Diff Canonical's PSYS source against Intel's master to see what they carry.
+2. Build `ipu6-camera-hal` against the local `ipu6-camera-bins`. Stop if it does not build.
+3. Drop in the Apache-2.0 `s5k3j1` graph settings and the Dell `.aiqb`, and see whether `libgcss`
+   accepts the file against Intel's ipu6ep descriptor.
+4. Attempt one capture through `icamerasrc`. Compare noise against a soft-ISP capture using the
+   WP5 measurement tooling, so the comparison is numeric rather than visual.
+5. Only then decide whether Phase 2 deserves real investment. Write the outcome up in
+   `docs/pdaf-intel-hal.md` either way.
+
+Independent of all of the above, still submit the WP2 sensor patch to `intel/ipu6-drivers` and
+send the 512 MHz link-frequency fix as its own earlier pull request.
 
 ## WP5 — noise reduction in the software ISP (independent of PDAF, likely the bigger visible win)
 
@@ -548,10 +575,10 @@ immediately whereas PDAF delivers speed.
 - PDAF algorithm: port RPi's control law into the existing softisp `Af` with attribution,
   plus a new correlator; do not port the whole RPi `Af` class.
 - Rebase libcamera work onto upstream master before WP3.
-- Phase 2 declared a dead end as a shipping target, on the grounds that the processing-system
-  driver is unmaintained at kernel 7.0 and that it would not supply PDAF processing for this
-  sensor in any case. Kept alive only as one time-boxed build-and-load experiment plus a
-  write-up, with the sensor pull requests proceeding independently.
+- Phase 2 kept open but not recommended as the first move. The processing-system driver is
+  shipped, signed, loaded and probed on this machine, and Intel's source builds clean here, so
+  availability is no longer the question. The reason to prefer WP5 first is that Phase 2
+  forfeits the libcamera stack that already works, not that it cannot be reached.
 - Noise reduction split out as WP5, sequenced before or alongside WP3 rather than after, because
   it is the more visible improvement and is open ground upstream.
 
@@ -565,9 +592,12 @@ immediately whereas PDAF delivers speed.
 3. WP3: `cam --metadata` shows `AfState` reaching `Focused` in ~1 s with PDAF conf above
    threshold, CDAF fallback engaging when the lens is covered; 5-trial stddev; jolt recovery;
    Snapshot via PipeWire; installed-package re-verification (not dev build only).
-4. WP4: a recorded yes or no on whether `intel-ipu6-psys` builds and loads on 7.0.0-31, written
-   up in `docs/pdaf-intel-hal.md`; sensor pull request opened against `intel/ipu6-drivers`
-   independently of that result.
+4. WP4: **done for the kernel half** — `intel-ipu6-psys` is shipped by Canonical, loaded, bound
+   and probed on 7.0.0-31, and Intel's master source builds clean here. Remaining checks are
+   userspace: does `ipu6-camera-hal` build, does `libgcss` accept the Apache-2.0 `s5k3j1` graph,
+   and does one `icamerasrc` capture measure less noisy than a soft-ISP capture using WP5's
+   tooling. Write up in `docs/pdaf-intel-hal.md`. Sensor pull request to `intel/ipu6-drivers`
+   proceeds independently.
 5. WP5: measured per-pixel temporal standard deviation and a flat-patch spatial estimate, before
    and after, at two light levels, on both cameras, through the installed package. Autofocus
    convergence time and repeatability unchanged by the denoise stage.
@@ -582,6 +612,12 @@ immediately whereas PDAF delivers speed.
 - Low-light PDAF confidence is worse than CDAF; the dropout-to-CDAF design covers it.
 - Upstream kernel API is still moving (86-patch series). Mitigation: keep the sensor patch
   small, rebase-friendly, and RFC early.
+- **Methodology risk this plan has already realised twice.** Two confident claims in earlier
+  revisions turned out wrong, both from inferring absence rather than checking: that the IPU6
+  does no hardware phase processing for this sensor (refuted by the graph descriptor), and that
+  the processing-system driver is unavailable at this kernel (refuted by `lsmod`). Before
+  asserting a capability is missing, check the running system or the authoritative definition
+  file, not the derived or per-sensor one.
 - Temporal denoise smears motion if the blend factor is tuned too aggressively, and the failure
   mode is subtle on a static test scene. Test with real movement in frame, not only the wall.
 - Credits: each WP has a standalone deliverable; WP0 alone materially de-risks everything, and
