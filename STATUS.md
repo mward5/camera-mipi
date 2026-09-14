@@ -32,11 +32,16 @@ breakage.
   (`docs/hi556-camera-orientation.patch`), not yet built or tested on hardware.
 - **Rear camera privacy-indicator LED never lights** — root-caused 2026-07-24
   (TPS68470 path has no privacy-LED concept at all), not fixed.
-- **PDAF** — re-assessed 2026-07-25-ish: the algorithm already exists in-tree and
-  is license-compatible, but blocked kernel-side on the
-  `V4L2_SUBDEV_ROUTING_ONLY_1_TO_1` restriction on the PAF sideband stream. Next
-  step (deferred to its own chat as of 2026-07-27): understand exactly where that
-  restriction lives and how Raspberry Pi's PDAF path differs architecturally.
+- **PDAF** — **planned 2026-09-14, see `docs/pdaf-implementation-plan.md`.** The
+  2026-07 "blocked by `V4L2_SUBDEV_ROUTING_ONLY_1_TO_1`" conclusion was a
+  misdiagnosis: that flag only forbids fan-in/fan-out, and mainline ISYS already
+  supports the dual RAW+metadata routing PDAF needs. The real gate is the V4L2
+  core's compile-time-disabled streams API (`v4l2_subdev_enable_streams_api`),
+  which hides routing from libcamera, plus the missing internal-pad concept a
+  sensor needs to expose a second stream (both arrive with Sakari Ailus's
+  unmerged metadata series). The Windows I2C capture shows the PAF stream is
+  likely VC0/DT 0x30 enabled by `0x0B80=0x0100` + `0x0116=0x3000`. The plan is
+  hack-first (WP0: prove emission, decode, offline phase) then upstream-shaped.
 - **Upstream submission** — not yet done for anything. See "Upstream goal" below
   for the standing bar (DMI+HID gated, zero regression risk), and the CCM findings
   doc for an open question specific to that data's proprietary-source licensing.
