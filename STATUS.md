@@ -32,6 +32,19 @@ breakage.
   (`docs/hi556-camera-orientation.patch`), not yet built or tested on hardware.
 - **Rear camera privacy-indicator LED never lights** — root-caused 2026-07-24
   (TPS68470 path has no privacy-LED concept at all), not fixed.
+- **Visible image noise** — root cause identified 2026-09-14, not fixed. The soft ISP has
+  no noise-reduction algorithm at all; Windows runs hardware temporal noise reduction
+  (`tnr_6_0`) plus Bayer NR on this exact camera in all 74 processed graph presets.
+  Upstream libcamera has no soft-ISP denoise either, so this is open ground. Scoped as
+  WP5 in `docs/pdaf-implementation-plan.md`, independent of the PDAF work.
+- **Intel HAL / PSYS path ("Phase 2")** — **assessed as a dead end 2026-09-14**, see WP4
+  in `docs/pdaf-implementation-plan.md`. Not for the reason expected: the graph settings
+  file for this sensor turns out to be Apache-2.0 and already in hand (Dell ships Intel's
+  own file; the HI556 one is byte-identical to Intel's public Linux copy), and the `.aiqb`
+  already parses against Intel's Linux parser. The real blocker is that `intel-ipu6-psys`
+  was never mainlined, is reported broken from kernel 6.16, and Intel's own `patch/v7.0/`
+  set contains nothing for it. For PDAF specifically it would buy nothing anyway, since
+  this sensor is PDAF Type 2 and Windows computes the phase in software too.
 - **PDAF** — **planned 2026-09-14, see `docs/pdaf-implementation-plan.md`.** The
   2026-07 "blocked by `V4L2_SUBDEV_ROUTING_ONLY_1_TO_1`" conclusion was a
   misdiagnosis: that flag only forbids fan-in/fan-out, and mainline ISYS already

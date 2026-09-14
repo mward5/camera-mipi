@@ -1,7 +1,9 @@
 # PDAF (phase-detect autofocus) for the s5k3j1 rear camera — implementation plan
 
 **Status of this document:** written 2026-09-14 by Fable 5.1 under a credit budget, for
-execution by Opus 5. Sections are ordered so that each is usable on its own. Findings 1–6 are
+execution by Opus 5. Revised 2026-09-14 after a follow-up question about noise reduction and
+what the IPU6 actually does: Findings 5 and 6 and work packages WP4 and WP5 are from that pass.
+Sections are ordered so that each is usable on its own. Findings 1–6 are
 verified research (file:line citations are against the trees named below). The work packages
 (WP0–WP4) are ordered so that stopping after any one of them still leaves a real deliverable.
 
@@ -27,9 +29,16 @@ and libcamera already ships a mature hybrid PDAF+CDAF control law in the Raspber
 
 Goal: a two-phase plan with a real chance of upstream acceptance.
 - **Phase 1** — fully open stack: mainline-derived kernel + libcamera simple pipeline + soft ISP.
-- **Phase 2** — the Intel `intel/ipu6-drivers` (DKMS) stack.
+  This is where all the real work is. WP0 through WP3, plus WP5.
+- **Phase 2** — the Intel `intel/ipu6-drivers` (DKMS) stack. **Reassessed as a dead end for
+  this machine** (WP4): the processing-system driver that would be the whole point of taking
+  that path is unmaintained on kernels this new, and for this sensor it would not provide
+  phase-detect processing anyway (Finding 5). Reduced to one bounded experiment, a write-up,
+  and upstream pull requests that stand on their own merit.
 
-The 2026-07-22 attempt was abandoned on a diagnosis that turns out to be wrong (Finding 1).
+Two findings drove the revision. The 2026-07-22 attempt was abandoned on a diagnosis that turns
+out to be wrong (Finding 1). And the noise the user sees has a separate, measurable cause with
+its own fix that does not depend on PDAF at all (WP5).
 
 ## Finding 1 — the "ONLY_1_TO_1 blocker" was a misdiagnosis; the real gate is the streams-API switch
 
@@ -172,6 +181,61 @@ or a packed format is unknown; WP0 decodes it empirically (WP0 step 5).
    (memory: explain concepts, do not hand over draft text unexplained).
 3. **libcamera plumbing** for an auxiliary metadata stream in the simple pipeline + soft ISP IPA
    (second capture node per camera, buffer pairing by sequence, IPA buffer mapping).
+
+## Finding 5 — for this sensor, Windows does PDAF phase computation in SOFTWARE, not on the IPU6
+
+Settled by reading the Dell Windows graph for this exact module
+(`reference/windows-driver-artifacts/win-collected/graph_settings_s5k3j1sx04_CJALR11_ADL.xml`):
+
+- Every preset carries `pdaf_type="2"` and exposes the phase plane as
+  `<paf format="PAFi" enabled="1" width="3968" height="684"/>` **inside the `<csi_be>` node**,
+  as a sibling of the Bayer `<output format="GR10">` and of `<stream2mmio>`. The CSI back end
+  and `stream2mmio` are Input System blocks (mainline has them as
+  `ipu6-isys-csi2-be.c` / `ipu6-isys-csi2-be-soc.c`). So ISYS demultiplexes the PAF stream and
+  DMAs it to memory, and that is the whole of the hardware's involvement.
+- **No PDAF program group appears anywhere in that graph.** The program groups present are
+  `isa_lb_video`, `post_gdc_video`, `isa_lb_stills`, `isa_lb_stills_burst`,
+  `ipu6_lb_stills_burst`, `burst_isp_stills_burst`, `post_gdc_stills`, `post_gdc_stills_burst`.
+- Contrast with the only PDAF sensor Intel configures publicly for Linux, `ov13b10`: that one is
+  `pdaf_type="PDAFType3"` and its graph really does instantiate `isa_lb_video_pdaf_3` as the
+  program group, because Type 3 embeds phase pixels in the image stream and needs the ISA to
+  extract them. Type 2 ships a separate CSI-2 stream and needs no such help.
+- Downstream, the phase maths runs in Intel's closed autofocus library, reached through
+  `PlatformData::isPdafEnabled()` setting `cca::CCA_STATS_PDAF` in `AiqCore.cpp`.
+
+**Why this matters, and it is good news.** WP0 and WP3's design — let ISYS deliver the PAF
+plane to a metadata capture node, correlate it in software — is architecturally the same thing
+Windows does for this sensor. We are reimplementing a closed *library's* correlation maths, not
+substituting for a hardware block we cannot reach. It also means the PDAF half of Phase 2 offers
+nothing Phase 1 does not already get, because there is no hardware phase engine in this path.
+
+## Finding 6 — the graph settings file is Apache-2.0 and we already hold it
+
+The "Intel has published no graph for this sensor" blocker is weaker than it looked.
+
+- Dell's Windows driver ships `graph_settings_HI556_1BG502T3_ADL.xml`, and Intel publishes a
+  file of the same name in `ipu6-camera-hal/config/linux/ipu6ep/gcss/`. They are **byte
+  identical** (md5 `56df1fb064472c466a4edf7020d08350`, 12689 lines each, same version string
+  `IPU6_20210118.0.1.0.247.1.2021.1.18.14.59.25`). These are one artifact shipped to both
+  operating systems, not two parallel formats.
+- The rear camera's own `graph_settings_s5k3j1sx04_CJALR11_ADL.xml` carries the same header:
+  Copyright Intel Corporation, **Apache License 2.0**. Not the "INTEL CONFIDENTIAL" banner that
+  the separate `graph_descriptor.xml` carries.
+- Version compatibility is plausible rather than proven. Ours is `IPU6_EP_20211220...`; Intel's
+  Linux ipu6ep descriptor is `IPU6_EP_20210318` and their `ov13b10` settings are
+  `IPU6_EP_20220216...`. Ours sits between the two, and the newer `ov13b10` settings work
+  against that descriptor, so the settings-to-descriptor coupling is evidently loose.
+- Caveat on the descriptor: `config/linux/ipu6ep/gcss/graph_descriptor.xml` is the program-group
+  catalogue the settings file references, and it is labelled INTEL CONFIDENTIAL **even though
+  Intel publishes it in a public repository**. Using it as Intel ships it is fine; we should not
+  redistribute it ourselves. Authoring a descriptor from scratch would be genuinely infeasible,
+  since it indexes firmware kernel and routing descriptors we do not have.
+
+So: we would not need to *create* the graph. We would need to *try the one we have*. The
+remaining unpublished piece is the per-module tuning binary, and the project has already shown
+(2026-07-27, `docs/aiqb-cmc-dump-findings.md`) that the Dell `.aiqb` parses correctly against
+Intel's own **Linux** parser library. Its redistribution licence is a separate open question
+already tracked against the colour-matrix work.
 
 ## Strategy
 
@@ -340,27 +404,112 @@ the PDAF extension.
    discovery, (c) simple-pipeline aux stream, (d) PDAF correlator + hybrid AF. Each
    independently useful; (a) can go now.
 
-## WP4 — Phase 2: the Intel DKMS / HAL stack
+## WP4 — Phase 2 reassessed: a dead end as an implementation target, worth one bounded experiment
 
-Findings say the kernel half is identical on kernels >= 6.10 (mainline ISYS), so Phase 2 is
-mostly submission and an investigation, not a second implementation:
+**Verdict: do not plan to ship the Intel HAL stack on this machine.** The blocking reason is not
+the one originally assumed. Two of the three supposed blockers dissolved on inspection; the one
+that remains is the fatal one.
 
-1. The WP2 sensor patch is the Phase 2 kernel deliverable: submit to `intel/ipu6-drivers` with
-   their `patch/v7.0/` conventions (their tree builds the same `s5k3j1.c` for all kernels;
-   guard the streams-API parts with `LINUX_VERSION_CODE` only if Intel asks).
-2. Investigate whether Intel's Linux HAL can consume a PAF sideband at all: read
-   `ipu6-camera-hal/src/core` for how ISYS metadata nodes are opened (search `META_CAPTURE`,
-   `IA_CSS_ISYS_LINK_PDAF_OUTPUT` users, `PlatformData::isPdafEnabled` readers) and whether
-   the ipu6ep PSYS graph `isa_lb_video_pdaf_3` is wired in `graph_settings`. Expected result:
-   plumbing exists for Type3/embedded stats only. Write it up in `docs/pdaf-intel-hal.md`.
-3. File a GitHub issue on `intel/ipu6-camera-bins` requesting `s5k3j1` (INT346D, Dell 9315)
-   tuning/graph files — the Dell Windows `.aiqb`/`.cpf` cannot be redistributed by us, and
-   without Intel-published bins the HAL path cannot work for anyone else. This is the
-   real gate for Phase 2; be explicit about it in STATUS.md.
-4. Only if Intel publishes bins: add the sensor XML (`pdaf_type="PDAFType2"`, `<pdaf
-   width="3968" height="684"/>`) in `ipu6-camera-hal/config/linux/ipu6ep/` and test with
-   `icamerasrc`. Otherwise Phase 2 ends at steps 1–3 with the sensor driver upstreamed to
-   Intel's tree.
+What turned out *not* to block it:
+
+- **Graph settings** — we hold an Apache-2.0 file for this exact module, and proved the format is
+  identical across operating systems (Finding 6).
+- **Tuning data** — the Dell `.aiqb` already parses against Intel's Linux parser
+  (`docs/aiqb-cmc-dump-findings.md`). Redistribution licence is open; local use is not in doubt.
+
+What does block it:
+
+- **The processing system is the abandoned half of the driver.** It was never merged upstream and
+  Intel treats the hardware interface and the ISP algorithms as proprietary. Reports have the
+  DKMS modules failing to build from kernel 6.16 onward, with suspend/resume broken from 6.16 and
+  no upstream fix. This machine runs 7.0.0-31. Intel's own `patch/v7.0/` set in `ipu6-drivers`
+  contains seven patches, all for `ipu-bridge`, INT3472 and sensor drivers, and **none** for
+  PSYS. Their `dkms.conf` builds `intel-ipu6-psys` with no kernel-version guard at all, while
+  gating nine other modules on versions, which reads as nobody testing that boundary.
+- **It replaces libcamera rather than extending it.** The HAL path runs through `icamerasrc` on
+  GStreamer. The exposure work, the colour matrices, the CDAF algorithm and the PipeWire and
+  desktop integration would all be bypassed, and PDAF would move inside a closed library where we
+  could neither tune nor debug it.
+- **For PDAF specifically it buys nothing.** Finding 5 shows there is no hardware phase engine in
+  this sensor's path; Windows computes phase in software too.
+
+The ecosystem has moved the same way, which is context rather than proof: mainline carries the
+Input System from 6.10, libcamera's simple pipeline has supported it since 0.3.2, Ubuntu ships
+signed in-kernel ipu6 modules (`linux-main-modules-ipu6-7.0.0-*` are installed here), and
+`intel-ipu6-dkms` remains in `resolute/universe` only at a March 2026 snapshot,
+`0~git202603270946.51fe7248`, the same upstream commit this project's sensor fork is based on.
+
+**Correct characterisation of the open-source path**: the kernel uses the IPU6 as a CSI-2
+receiver and a DMA engine, nothing more. On IPU6 every processing block — Bayer noise reduction,
+demosaic, colour, temporal noise reduction, geometric correction, scalers — lives in the
+processing system, so "receive and pass through to memory" is an accurate description of what the
+in-kernel driver does. That is not a design preference; it is the consequence of the processing
+half being undocumented, firmware-driven and closed.
+
+**What to actually do (time-boxed, half a day, optional):**
+
+1. One experiment worth running, because it is cheap and settles the question permanently: does
+   `intel-ipu6-psys` build and load at all on 7.0.0-31? Build it alone from the fork, try to load
+   it, read `dmesg`. Record the answer in `docs/pdaf-intel-hal.md`.
+2. If it loads, one further bounded test: drop the Apache-2.0 s5k3j1 graph settings and the Dell
+   `.aiqb` into a HAL build and see whether `libgcss` accepts the file version against Intel's
+   ipu6ep descriptor. Stop there. Do not build out an `icamerasrc` pipeline.
+3. Either way, write `docs/pdaf-intel-hal.md` with the finding and close Phase 2. If step 1
+   fails, that document is the deliverable and the phase is formally dead.
+4. Independent of the above, still submit the WP2 sensor patch to `intel/ipu6-drivers` as a pull
+   request, and send the 512 MHz link-frequency fix as its own earlier pull request. Those are
+   valuable to that project regardless of whether we ever run their userspace.
+5. Optionally file an issue against `intel/ipu6-camera-bins` asking for published `s5k3j1`
+   tuning, noting that the graph settings are already Apache-2.0. Low expected value now that
+   PSYS is the real blocker, but it costs nothing and documents the gap for others.
+
+## WP5 — noise reduction in the software ISP (independent of PDAF, likely the bigger visible win)
+
+Motivation, measured rather than assumed: the Windows graph for this camera runs
+`<tnr_6_0>`, temporal noise reduction, as a processing-system program group inside
+`post_gdc_video`, with private `tnr_ref_in` and `tnr_ref_out` reference-frame buffers, in all 74
+processed presets. Bayer noise reduction sits ahead of it inside the ISA back end. Our software
+ISP has no noise reduction of any kind: `src/ipa/simple/algorithms/` holds only black level,
+white balance, colour matrix, gain, adjust and autofocus. That is a sufficient explanation for
+the visible noise, and closing it does not require any of the PDAF machinery.
+
+This is also open ground upstream, which makes it a genuine contribution rather than a local
+patch. As of the FOSDEM 2026 software-ISP status talk by Bryan O'Donoghue and Hans de Goede, the
+delivered features are GPU acceleration, open sensor calibration with colour matrices, and lens
+shading correction. Noise reduction is not among them.
+
+Sequencing note: **do WP5 before or in parallel with WP3, not after.** Both touch the same files
+and both want the upstream rebase done first, and WP5 delivers something the user can see
+immediately whereas PDAF delivers speed.
+
+1. **Rebase onto upstream libcamera master first** (shared prerequisite with WP3, do it once).
+   Re-verify AGC and CDAF on hardware afterwards before adding anything.
+2. **Measure the baseline.** Extend `scripts/agc-analyze-exposure.py`, which already parses P6
+   PPM with no third-party dependencies, to report a temporal noise estimate: capture a burst of
+   a static scene at fixed exposure and gain, then report per-pixel standard deviation across
+   frames and a spatial estimate from a flat patch. Do this at two light levels. Without this,
+   any denoise claim is an eyeball judgement, and this project's own history is full of eyeball
+   judgements that measurement overturned.
+3. **Implement temporal denoise first**, mirroring what the hardware does and what costs least:
+   a motion-compensated-free recursive blend of the previous output frame with the current one,
+   with a per-pixel blend factor that falls off as the absolute difference grows, so moving
+   regions are not smeared. One reference frame, one pass, no search. Add it as a new
+   `Algorithm` in `src/ipa/simple/algorithms/` following the shape of `agc.cpp`, with the
+   reference frame held in the debayer stage rather than the IPA, since that is where pixel data
+   lives.
+4. **Then consider spatial denoise** on the Bayer data ahead of debayer, which is where the
+   hardware puts it. Only if step 3 leaves visible noise, and only with the measurement from
+   step 2 to justify it. Spatial filtering trades detail for smoothness and is easy to overdo.
+5. **Watch the interaction with autofocus.** The sharpness statistic is computed on raw samples
+   in `swstats_cpu.cpp`, before any of this, so a denoise stage placed in the debayer path should
+   not perturb it. Verify that rather than assume it, because this project has been caught twice
+   by statistics gathered at one pipeline point and consumed at another.
+6. **Consider lens shading too.** The colour-matrix work already found populated
+   `cmc_lens_shading` records in every `.aiqb` and left them unused. Upstream now has lens
+   shading infrastructure in `libipa`. That is a separate, well-defined follow-on with data
+   already in hand.
+7. **Validate and ship** the same way as every prior change: both cameras, measured before and
+   after, through the installed package and not only the development build.
 
 ## Decisions taken in this plan (change if the user disagrees)
 
@@ -372,7 +521,12 @@ mostly submission and an investigation, not a second implementation:
 - PDAF algorithm: port RPi's control law into the existing softisp `Af` with attribution,
   plus a new correlator; do not port the whole RPi `Af` class.
 - Rebase libcamera work onto upstream master before WP3.
-- Phase 2 scoped to "same sensor patch to Intel + HAL investigation + bins request".
+- Phase 2 declared a dead end as a shipping target, on the grounds that the processing-system
+  driver is unmaintained at kernel 7.0 and that it would not supply PDAF processing for this
+  sensor in any case. Kept alive only as one time-boxed build-and-load experiment plus a
+  write-up, with the sensor pull requests proceeding independently.
+- Noise reduction split out as WP5, sequenced before or alongside WP3 rather than after, because
+  it is the more visible improvement and is open ground upstream.
 
 ## Verification summary (end-to-end)
 
@@ -384,7 +538,12 @@ mostly submission and an investigation, not a second implementation:
 3. WP3: `cam --metadata` shows `AfState` reaching `Focused` in ~1 s with PDAF conf above
    threshold, CDAF fallback engaging when the lens is covered; 5-trial stddev; jolt recovery;
    Snapshot via PipeWire; installed-package re-verification (not dev build only).
-4. WP4: sensor PR opened against `intel/ipu6-drivers`; bins issue filed; HAL write-up.
+4. WP4: a recorded yes or no on whether `intel-ipu6-psys` builds and loads on 7.0.0-31, written
+   up in `docs/pdaf-intel-hal.md`; sensor pull request opened against `intel/ipu6-drivers`
+   independently of that result.
+5. WP5: measured per-pixel temporal standard deviation and a flat-patch spatial estimate, before
+   and after, at two light levels, on both cameras, through the installed package. Autofocus
+   convergence time and repeatability unchanged by the denoise stage.
 
 ## Risks
 
@@ -396,7 +555,10 @@ mostly submission and an investigation, not a second implementation:
 - Low-light PDAF confidence is worse than CDAF; the dropout-to-CDAF design covers it.
 - Upstream kernel API is still moving (86-patch series). Mitigation: keep the sensor patch
   small, rebase-friendly, and RFC early.
-- Credits: each WP has a standalone deliverable; WP0 alone materially de-risks everything.
+- Temporal denoise smears motion if the blend factor is tuned too aggressively, and the failure
+  mode is subtle on a static test scene. Test with real movement in frame, not only the wall.
+- Credits: each WP has a standalone deliverable; WP0 alone materially de-risks everything, and
+  WP5 is independently useful even if PDAF is never attempted.
 
 ## Sources
 
@@ -410,6 +572,12 @@ mostly submission and an investigation, not a second implementation:
   https://github.com/intel/ipu6-camera-hal/blob/main/modules/ia_css/ipu6ep/include/ia_css_program_group_data_defs.h
 - libcamera embedded data support: https://patchwork.libcamera.org/patch/21872/ ;
   v0.7.1 release: https://www.phoronix.com/news/libcamera-0.7.1-Released
+- FOSDEM 2026 software-ISP status (O'Donoghue, de Goede):
+  https://archive.fosdem.org/2026/schedule/event/TKSK3G-libcamera-softisp/
+- IPU6 proprietary-versus-mainline stack write-up, incl. PSYS build failures on recent kernels:
+  https://jetm.github.io/blog/posts/ipu6-webcam-libcamera-on-linux/
 - Local evidence: `docs/windows-agent-findings-i2c-mode-regs-2026-07-17.md`,
+  `docs/aiqb-cmc-dump-findings.md`,
+  `reference/windows-driver-artifacts/dell-drivers/graph_settings/` (Apache-2.0 graph files),
   `reference/windows-driver-artifacts/win-collected/graph_settings_s5k3j1sx04_CJALR11_ADL.xml`,
   `~/work/git-ubuntu/libcamera` branch `pdaf-sideband-wip` (`bf35185`).
