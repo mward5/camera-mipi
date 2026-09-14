@@ -9,7 +9,9 @@ verified research (file:line citations are against the trees named below). The w
 
 Trees referenced:
 - Kernel: `~/work/git-ubuntu/resolute` (branch `dell-xps9315-2in1`, synthetic root =
-  `Ubuntu-7.0.0-29.29`; published as `github.com/mward5/linux-xps9315-2in1`).
+  `Ubuntu-7.0.0-31.31` as of 2026-09-14; published as `github.com/mward5/linux-xps9315-2in1`,
+  **whose `main` is still the pre-rebase 29.29-based tip** - the rebase is local-only and its
+  push is deliberately deferred, see below).
 - Sensor driver: `~/work/intel/ipu6-drivers` branch `dell-xps9315-s5k3j1` (published as
   `mward5/ipu6-drivers-xps9315-2in1`), file `drivers/media/i2c/s5k3j1.c`.
 - libcamera: `~/work/git-ubuntu/libcamera` branch `xps-9315-2-in-1-cameras` (0.7.0 base).
@@ -648,3 +650,25 @@ immediately whereas PDAF delivers speed.
   `reference/windows-driver-artifacts/dell-drivers/graph_settings/` (Apache-2.0 graph files),
   `reference/windows-driver-artifacts/win-collected/graph_settings_s5k3j1sx04_CJALR11_ADL.xml`,
   `~/work/git-ubuntu/libcamera` branch `pdaf-sideband-wip` (`bf35185`).
+
+## Deferred: publishing the 31.31 kernel rebase
+
+Done locally 2026-09-14, **not pushed**. The `dell-xps9315-2in1` branch was rebased from a
+synthetic root at `Ubuntu-7.0.0-29.29` onto a new one at `Ubuntu-7.0.0-31.31`, to match the
+running kernel (7.0.0-31-generic). Zero upstream drift in all four patched files, no conflicts,
+all 18 commits' content/authors/dates preserved, patched file content bit-for-bit unchanged.
+
+- New root `26ff6f5ff2e9`, new tip `b0e18a8cd92f`.
+- Pre-rebase tip saved at `refs/backup/dell-xps9315-2in1-pre-31.31` (`f0712f8df120`).
+- `github.com/mward5/linux-xps9315-2in1` `main` is still at `f0712f8df120`.
+
+**Publishing was deliberately deferred until there are significant driver changes worth a
+release**, so one force push carries both. When that happens, the order matters:
+
+1. `git push --force github-xps9315 dell-xps9315-2in1:main` in `~/work/git-ubuntu/resolute`.
+2. Update the `camera-mipi` submodule pin for `drivers/linux-xps9315-2in1` to the new tip.
+3. Commit and push `camera-mipi`.
+
+Doing 1 without 2 breaks `git clone --recurse-submodules` of `camera-mipi` for everyone, because
+the pinned commit becomes unreachable on the fork. That clone path is what the README tells
+people to use, so this is a real break, not a cosmetic one.
