@@ -43,8 +43,10 @@ breakage.
   own file; the HI556 one is byte-identical to Intel's public Linux copy), and the `.aiqb`
   already parses against Intel's Linux parser. The real blocker is that `intel-ipu6-psys`
   was never mainlined, is reported broken from kernel 6.16, and Intel's own `patch/v7.0/`
-  set contains nothing for it. For PDAF specifically it would buy nothing anyway, since
-  this sensor is PDAF Type 2 and Windows computes the phase in software too.
+  set contains nothing for it. Note that mainline itself creates the PSYS device, maps the
+  firmware into it and builds its package directory at every probe - the processing
+  firmware is loaded and idle, with no driver bound, because that driver was never
+  mainlined. The gap is a maintained driver, not a missing capability.
 - **PDAF** — **planned 2026-09-14, see `docs/pdaf-implementation-plan.md`.** The
   2026-07 "blocked by `V4L2_SUBDEV_ROUTING_ONLY_1_TO_1`" conclusion was a
   misdiagnosis: that flag only forbids fan-in/fan-out, and mainline ISYS already

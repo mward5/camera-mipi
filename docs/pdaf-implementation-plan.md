@@ -182,32 +182,52 @@ or a packed format is unknown; WP0 decodes it empirically (WP0 step 5).
 3. **libcamera plumbing** for an auxiliary metadata stream in the simple pipeline + soft ISP IPA
    (second capture node per camera, buffer pairing by sequence, IPA buffer mapping).
 
-## Finding 5 — for this sensor, Windows does PDAF phase computation in SOFTWARE, not on the IPU6
+Note on item 1 after the Finding 5 correction: this substitutes for a hardware kernel
+(`pafstatistics_1`), so treat CPU cost as a first-class design constraint. A 3968x684 plane at
+30 fps is 81 MB/s of input. Subsample into a coarse region grid and correlate only within each
+cell over a bounded shift range; do not correlate at full resolution.
 
-Settled by reading the Dell Windows graph for this exact module
-(`reference/windows-driver-artifacts/win-collected/graph_settings_s5k3j1sx04_CJALR11_ADL.xml`):
+## Finding 5 — CORRECTED: the IPU6 *does* compute PAF statistics in hardware, for this sensor too
 
-- Every preset carries `pdaf_type="2"` and exposes the phase plane as
-  `<paf format="PAFi" enabled="1" width="3968" height="684"/>` **inside the `<csi_be>` node**,
-  as a sibling of the Bayer `<output format="GR10">` and of `<stream2mmio>`. The CSI back end
-  and `stream2mmio` are Input System blocks (mainline has them as
-  `ipu6-isys-csi2-be.c` / `ipu6-isys-csi2-be-soc.c`). So ISYS demultiplexes the PAF stream and
-  DMAs it to memory, and that is the whole of the hardware's involvement.
-- **No PDAF program group appears anywhere in that graph.** The program groups present are
-  `isa_lb_video`, `post_gdc_video`, `isa_lb_stills`, `isa_lb_stills_burst`,
-  `ipu6_lb_stills_burst`, `burst_isp_stills_burst`, `post_gdc_stills`, `post_gdc_stills_burst`.
-- Contrast with the only PDAF sensor Intel configures publicly for Linux, `ov13b10`: that one is
-  `pdaf_type="PDAFType3"` and its graph really does instantiate `isa_lb_video_pdaf_3` as the
-  program group, because Type 3 embeds phase pixels in the image stream and needs the ISA to
-  extract them. Type 2 ships a separate CSI-2 stream and needs no such help.
-- Downstream, the phase maths runs in Intel's closed autofocus library, reached through
-  `PlatformData::isPdafEnabled()` setting `cca::CCA_STATS_PDAF` in `AiqCore.cpp`.
+**This section originally claimed the opposite. Recorded as a correction, per project convention,
+rather than silently rewritten.** The first pass concluded that because no PDAF-named program
+group appears in this sensor's graph *settings* file, the processing system plays no part and
+Windows computes the phase in software. That reasoning was unsound: the settings file only
+overrides resolutions and formats, while the *descriptor* defines which kernels exist and run.
+Reading `config/linux/ipu6ep/gcss/graph_descriptor.xml` settles it.
 
-**Why this matters, and it is good news.** WP0 and WP3's design — let ISYS deliver the PAF
-plane to a metadata capture node, correlate it in software — is architecturally the same thing
-Windows does for this sensor. We are reimplementing a closed *library's* correlation maths, not
-substituting for a hardware block we cannot reach. It also means the PDAF half of Phase 2 offers
-nothing Phase 1 does not already get, because there is no hardware phase engine in this path.
+The program group this sensor actually uses, `isa_lb_video`, contains:
+
+- `<kernel enabled="1" idx="65" name="pafstatistics_1" pal_uuid="47216" rcb="0"/>` — a hardware
+  PAF statistics kernel, enabled.
+- `<port direction="0" id="27" name="ext_pdaf_stats"/>` — an **input** port for externally
+  supplied PDAF data, fed straight to `mux_pdaf_stat_1_0:0`, with the mux set `active_input="0"`.
+- `<port content_type="spatial" direction="1" id="16" name="pdaf_stats"/>` — the statistics
+  output, sourced from `pafstatistics_1:output`.
+
+`isa_lb_video_pdaf_3`, the Type 3 variant, is the **same program group with 23 lines different**.
+It drops the `ext_pdaf_stats` link, flips the mux to `active_input="1"`, and feeds the same
+`pafstatistics_1` kernel from `pext_1_0`, a pixel extractor taking `outputafpixelsimage` off the
+defect-pixel-correction stage. Only the routing bitmask differs otherwise.
+
+So the two PDAF types are two ways of feeding one hardware kernel:
+
+| | source of phase pixels | mux input |
+|---|---|---|
+| Type 2, ours | ISYS delivers the PAF sideband, enters via `ext_pdaf_stats` | 0 |
+| Type 3, `ov13b10` | extracted from the image stream inside the ISA by `pext_1_0` | 1 |
+
+**Consequences for this plan.** The design does not change: software correlation on a
+CPU-captured PAF plane remains the only option on the open stack, and it is tractable. But the
+honest characterisation does. WP3's correlator substitutes for a *hardware statistics kernel*,
+not merely for a library function, so budget more effort for it and expect a CPU cost that a
+region grid and subsampling must keep in check. The control law on top of those statistics does
+still live in the closed autofocus library, and that part the Raspberry Pi algorithm covers.
+
+**It also means the open stack leaves a real, loaded hardware ISP idle.** The same program group
+carries `bnlm_3_2` (Bayer non-local-means denoise), `xnr_5_2`, `gd_dpc_2_1` (defect pixels),
+`lsc_1_1` (lens shading), `bxt_demosaic`, `bxt_wb`, `bxt_acm`, `gammatm_v3`, the 3A statistics
+kernels and video stabilisation. None of it is reachable without the processing-system driver.
 
 ## Finding 6 — the graph settings file is Apache-2.0 and we already hold it
 
@@ -430,8 +450,15 @@ What does block it:
   GStreamer. The exposure work, the colour matrices, the CDAF algorithm and the PipeWire and
   desktop integration would all be bypassed, and PDAF would move inside a closed library where we
   could neither tune nor debug it.
-- **For PDAF specifically it buys nothing.** Finding 5 shows there is no hardware phase engine in
-  this sensor's path; Windows computes phase in software too.
+- **The prize is real, which makes the experiment worth running but changes nothing about the
+  blocker.** Finding 5 (corrected) shows the processing system does run a hardware PAF statistics
+  kernel for this sensor, alongside a full hardware ISP. Note what mainline already does at
+  probe in `ipu6.c`: it creates the PSYS auxiliary device (`ipu6_psys_init`, line 618), maps the
+  firmware image into it (`ipu6_buttress_map_fw_image`, line 636) and builds its package
+  directory (`ipu6_cpd_create_pkg_dir`, line 643). The processing firmware is therefore loaded
+  and sitting idle on every boot, with no driver bound to that auxiliary device, because the
+  driver that would bind it was never mainlined. The gap is a maintained driver, not a missing
+  capability and not missing data.
 
 The ecosystem has moved the same way, which is context rather than proof: mainline carries the
 Input System from 6.10, libcamera's simple pipeline has supported it since 0.3.2, Ubuntu ships
