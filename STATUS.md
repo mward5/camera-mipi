@@ -45,7 +45,9 @@ breakage.
   PSYS source also builds clean against 7.0.0-31 headers (recipe in the plan's WP4;
   artifact at `~/work/ipu6-psys-buildtest_output/`). The graph settings for this sensor are
   Apache-2.0 and in hand, and the Dell `.aiqb` already parses with Intel's Linux parser. The
-  one real remaining cost is that the path bypasses libcamera entirely. Untested: whether
+  one real remaining cost is that the path bypasses libcamera entirely. Note Secure Boot is
+  ENABLED on this machine, so any locally built PSYS module must be MOK-signed to load.
+  Untested: whether
   `ipu6-camera-hal` builds/runs here, what `IPU6 in secure mode` restricts, and whether the
   ISA actually improves the image enough to be worth it. See WP4 in
   `docs/pdaf-implementation-plan.md`.

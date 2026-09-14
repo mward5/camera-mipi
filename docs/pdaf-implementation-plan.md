@@ -443,6 +443,7 @@ Both observations are real; the conclusion drawn from them was not.
 | Shipped by | `linux-main-modules-ipu6-7.0.0-31-generic` 7.0.0-31.31+2 |
 | Module path | `/usr/lib/modules/7.0.0-31-generic/ubuntu/dkms/ipu6/intel-ipu6-psys.ko.zst` |
 | Signed by | Canonical Ltd. Kernel Module Signing |
+| Still loaded with Secure Boot on | yes, verified after the 2026-09-14 re-enable |
 
 Canonical builds this driver from the DKMS source into a signed in-tree module and ships it in
 lockstep with every kernel ABI bump. It has been probed and running on this laptop since the
@@ -467,10 +468,13 @@ The build product is kept at `~/work/ipu6-psys-buildtest_output/intel-ipu6-psys.
 `srcversion` is `A75828D2B87995661B11D0E` against Canonical's `A2DCB27B28F4396A95385CF`, so
 Canonical carries local changes to the driver; worth diffing before modifying it.
 
-Secure Boot is **disabled** on this machine, so an unsigned local build would load. Swapping
-Canonical's module for the local one has not been done, because the load question is already
-answered by the running system and the swap risks nothing but gains nothing either. Do it only
-if the driver itself ever needs modifying.
+**Secure Boot is ENABLED on this machine** (re-enabled by the user 2026-09-14; it had been off
+since a Dell firmware flash in June). So a locally built processing-system module will **not**
+load unless it is signed with the enrolled machine-owner key, the same way DKMS already signs
+this project's modules. Swapping Canonical's module for a local one has not been done and is
+not needed: the load question is answered by the running system. If the driver itself ever needs
+modifying, sign the result with the enrolled key rather than expecting an unsigned module to
+load, and diff Canonical's source first since their `srcversion` differs from Intel's.
 
 ### What Phase 2 actually requires now
 
