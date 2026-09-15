@@ -89,18 +89,20 @@ media-ctl -d "$MDEV" -V "\"$CSI2\":2 [fmt:META_8/${PAF_W}x${PAF_H}]" 2>&1 | sed 
 # yavta 1.32.0 knows no metadata formats, and v4l2-ctl's --set-fmt-meta takes
 # only a fourcc with no way to pass width/height, which a line-based metadata
 # format requires. Hence our own tool.
-echo "starting PAF capture ($FRAMES frames) on $PAF_NODE"
-python3 "$(dirname "$0")/pdaf-meta-capture.py" "$PAF_NODE" \
-	--width "$PAF_W" --height "$PAF_H" --count "$FRAMES" --outdir "$OUT" \
-	> "$OUT/paf-capture.log" 2>&1 &
-PAF_PID=$!
-sleep 1
-
+# The image node must start FIRST. The PDAF sink stream is stripped before the
+# sensor is asked for anything, so a PDAF-only start never brings it up.
 echo "starting image stream ($FRAMES frames) on $IMG_NODE"
 yavta --no-query -f SGRBG10 -s 3976x2736 -n 4 -c"$FRAMES" \
 	--file="$OUT/img-#.raw" "$IMG_NODE" \
 	> "$OUT/yavta-img.log" 2>&1 &
 IMG_PID=$!
+sleep 2
+
+echo "starting PAF capture ($FRAMES frames) on $PAF_NODE"
+python3 "$(dirname "$0")/pdaf-meta-capture.py" "$PAF_NODE" \
+	--width "$PAF_W" --height "$PAF_H" --count "$FRAMES" --outdir "$OUT" \
+	> "$OUT/paf-capture.log" 2>&1 &
+PAF_PID=$!
 
 # drive the lens through known positions while both streams run
 ( sleep 2
