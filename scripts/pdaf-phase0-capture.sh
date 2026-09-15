@@ -21,14 +21,31 @@ IMG_H=2736
 # Lens positions to visit during the run, for the phase-vs-position curve.
 POSITIONS=(0 256 512 768 1023)
 
+# --- free the device FIRST: media-ctl can fail while pipewire holds it, which
+# --- made device discovery intermittently report "no intel-ipu6 media device".
+RESTORE_SERVICES=0
+early_cleanup() {
+	[ "$RESTORE_SERVICES" = "1" ] && systemctl --user start pipewire.socket pipewire wireplumber 2>/dev/null
+}
+trap early_cleanup EXIT INT TERM
+echo "stopping pipewire/wireplumber for exclusive access"
+systemctl --user stop wireplumber pipewire pipewire.socket 2>/dev/null || true
+RESTORE_SERVICES=1
+sleep 1
+
 # --- device discovery (numbering is NOT stable across boots; a USB webcam can
 # --- take media0, and did on 2026-09-14) -------------------------------------
+# NOTE: do not pipe media-ctl into `grep -q` here. grep -q exits on the first
+# match, media-ctl then takes SIGPIPE, and `set -o pipefail` fails the whole
+# test even though the match succeeded. That race made discovery work five
+# times and then start failing. Capture the output first instead.
 MDEV=""
 for d in /dev/media*; do
 	[ -e "$d" ] || continue
-	if media-ctl -d "$d" -p 2>/dev/null | grep -q "^driver[[:space:]]*intel-ipu6"; then
-		MDEV="$d"; break
-	fi
+	info=$(media-ctl -d "$d" -p 2>/dev/null || true)
+	case "$info" in
+	*"driver"*"intel-ipu6"*) MDEV="$d"; break ;;
+	esac
 done
 [ -n "$MDEV" ] || { echo "ERROR: no intel-ipu6 media device found" >&2; exit 1; }
 
@@ -60,8 +77,7 @@ echo "pdaf_hack_pad=$HACK_PAD  pdaf_paf_out=$PAF_OUT"
 [ "$HACK_PAD" = "2" ] || echo "WARNING: pdaf_hack_pad is not 2"
 [ "$PAF_OUT" = "1" ]  || echo "WARNING: s5k3j1 pdaf_paf_out is not 1 - sensor may not emit PAF"
 
-# --- free the device, and ALWAYS put the services back (2026-07-24 lesson) ---
-RESTORE_SERVICES=0
+# --- full cleanup; ALWAYS put the services back (2026-07-24 lesson) ---
 cleanup() {
 	set +e
 	pkill -f "pdaf-meta-capture.py.*$PAF_NODE" 2>/dev/null
@@ -73,11 +89,6 @@ cleanup() {
 	fi
 }
 trap cleanup EXIT INT TERM
-
-echo "stopping pipewire/wireplumber for exclusive access"
-systemctl --user stop wireplumber pipewire pipewire.socket 2>/dev/null || true
-RESTORE_SERVICES=1
-sleep 1
 
 # --- topology + formats -----------------------------------------------------
 echo "enabling CSI2 pad 2 -> Capture 9"
@@ -92,6 +103,14 @@ echo "setting image pipeline formats (${IMG_W}x${IMG_H})"
 for ent in "\"s5k3j1 1-0010\":0" "\"$CSI2\":0" "\"$CSI2\":1"; do
 	media-ctl -d "$MDEV" -V "$ent [fmt:SGRBG10_1X10/${IMG_W}x${IMG_H}]" 2>&1 | sed "s|^|  set $ent: |"
 done
+# The image node's pipeline start validates the sideband link too, and that
+# check compares the seeded pad format against THIS node's format. Set it now,
+# or the image node fails with EPIPE - silently, since that mismatch is logged
+# at debug level only (ipu6-isys-video.c, format mismatch path).
+echo "pre-setting the PAF node format"
+python3 "$(dirname "$0")/pdaf-meta-capture.py" "$PAF_NODE" \
+	--width "$PAF_W" --height "$PAF_H" --set-format-only 2>&1 | sed 's/^/  /'
+
 echo "resulting pipeline formats:"
 media-ctl -d "$MDEV" -p 2>/dev/null | grep -E "^- entity .*(CSI2 1|s5k3j1)|fmt:" | sed 's/^/  /' | head -12
 

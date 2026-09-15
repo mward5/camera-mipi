@@ -75,9 +75,16 @@ def main():
     ap.add_argument("--format", default="MET8")
     ap.add_argument("--count", type=int, default=20)
     ap.add_argument("--nbufs", type=int, default=4)
-    ap.add_argument("--outdir", required=True)
+    ap.add_argument("--outdir")
+    ap.add_argument("--set-format-only", action="store_true",
+                    help="set the format and exit; the image node's pipeline start "
+                         "validates this node's link too, so its format must already "
+                         "be right or that start fails with EPIPE")
     a = ap.parse_args()
-    os.makedirs(a.outdir, exist_ok=True)
+    if not a.set_format_only and not a.outdir:
+        ap.error("--outdir is required unless --set-format-only")
+    if a.outdir:
+        os.makedirs(a.outdir, exist_ok=True)
 
     fd = os.open(a.device, os.O_RDWR)
     try:
@@ -93,6 +100,8 @@ def main():
         if f.fmt.meta.buffersize < a.width * a.height:
             print(f"WARNING: driver shrank the buffer to {f.fmt.meta.buffersize}; "
                   f"expected at least {a.width * a.height}")
+        if a.set_format_only:
+            return
 
         req = RequestBuffers(count=a.nbufs, type=V4L2_BUF_TYPE_META_CAPTURE,
                              memory=V4L2_MEMORY_MMAP)
