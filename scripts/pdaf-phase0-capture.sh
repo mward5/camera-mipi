@@ -108,7 +108,7 @@ done
 # or the image node fails with EPIPE - silently, since that mismatch is logged
 # at debug level only (ipu6-isys-video.c, format mismatch path).
 echo "pre-setting the PAF node format"
-python3 "$(dirname "$0")/pdaf-meta-capture.py" "$PAF_NODE" \
+python3 -u "$(dirname "$0")/pdaf-meta-capture.py" "$PAF_NODE" \
 	--width "$PAF_W" --height "$PAF_H" --set-format-only 2>&1 | sed 's/^/  /'
 
 echo "resulting pipeline formats:"
@@ -118,17 +118,22 @@ media-ctl -d "$MDEV" -p 2>/dev/null | grep -E "^- entity .*(CSI2 1|s5k3j1)|fmt:"
 # yavta 1.32.0 knows no metadata formats, and v4l2-ctl's --set-fmt-meta takes
 # only a fourcc with no way to pass width/height, which a line-based metadata
 # format requires. Hence our own tool.
-# The image node must start FIRST. The PDAF sink stream is stripped before the
-# sensor is asked for anything, so a PDAF-only start never brings it up.
+# Raw yavta for the image stream, NOT libcamera: libcamera reconfigures the
+# media link topology when it configures a camera, which disables the sideband
+# link we just enabled, and the sideband node then fails with ENOLINK.
+# yavta on the image node does work once both nodes stream, because the driver
+# only releases buffers to the firmware when the number of streaming nodes
+# equals the number of active routes (ipu6-isys-queue.c, nr_streaming vs
+# nr_queues) - and our extra route makes that two.
 echo "starting image stream ($FRAMES frames) on $IMG_NODE"
-yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" -n 4 -c"$FRAMES" \
+stdbuf -oL -eL yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" -n 4 -c"$FRAMES" \
 	--file="$OUT/img-#.raw" "$IMG_NODE" \
 	> "$OUT/yavta-img.log" 2>&1 &
 IMG_PID=$!
-sleep 2
+sleep 0.5
 
 echo "starting PAF capture ($FRAMES frames) on $PAF_NODE"
-python3 "$(dirname "$0")/pdaf-meta-capture.py" "$PAF_NODE" \
+python3 -u "$(dirname "$0")/pdaf-meta-capture.py" "$PAF_NODE" \
 	--width "$PAF_W" --height "$PAF_H" --count "$FRAMES" --outdir "$OUT" \
 	> "$OUT/paf-capture.log" 2>&1 &
 PAF_PID=$!

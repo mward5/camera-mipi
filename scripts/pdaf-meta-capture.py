@@ -101,6 +101,16 @@ def main():
             print(f"WARNING: driver shrank the buffer to {f.fmt.meta.buffersize}; "
                   f"expected at least {a.width * a.height}")
         if a.set_format_only:
+            # Flipping the format is not enough. This driver keeps its vb2
+            # queue as VIDEO_CAPTURE until REQBUFS arrives with a metadata
+            # type (ipu6_isys_vidioc_reqbufs -> vb2_queue_change_type), and
+            # link validation reads the format matching the *queue* type. So
+            # without this the image node validates our link against a video
+            # format and fails with EPIPE. A zero count is enough to switch it.
+            req0 = RequestBuffers(count=0, type=V4L2_BUF_TYPE_META_CAPTURE,
+                                  memory=V4L2_MEMORY_MMAP)
+            fcntl.ioctl(fd, VIDIOC_REQBUFS, req0)
+            print("queue type switched to META_CAPTURE")
             return
 
         req = RequestBuffers(count=a.nbufs, type=V4L2_BUF_TYPE_META_CAPTURE,

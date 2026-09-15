@@ -672,3 +672,68 @@ release**, so one force push carries both. When that happens, the order matters:
 Doing 1 without 2 breaks `git clone --recurse-submodules` of `camera-mipi` for everyone, because
 the pinned commit becomes unreachable on the fork. That clone path is what the README tells
 people to use, so this is a real break, not a cosmetic one.
+
+## WP0 outcome — attempted 2026-09-15, twelve rounds, NOT achieved
+
+**The question WP0 exists to answer is still open: we do not know whether the s5k3j1 emits its
+PAFi sideband.** The forced-second-input-pin approach could not be made to deliver frames, and
+the attempt is stopped here rather than patched further. What it established along the way is
+worth more than the attempt cost, and is recorded below.
+
+### What the attempt proved
+
+- **Every V4L2 layer can be satisfied.** Format, route, link validation, stream accounting and
+  stream start all succeed. The sideband node reaches its capture loop and blocks.
+- **The data type is NOT the variable.** Six candidates failed identically; then the decisive
+  control, setting the sideband pin to the very data type the image stream uses, also produced
+  nothing — **and starved the image node too**. So a second input pin stops the whole stream
+  regardless of what it is labelled.
+- **It is not the receiver being re-initialised.** Refcounting the front-end setup changed
+  nothing, and the refcount never even reported a second entry.
+- **The sensor-side register hypothesis was never tested**, because no configuration ever
+  delivered a buffer to compare against.
+
+### Why it stops here
+
+Each round moved the failure strictly later and each found a real bug, but the last three rounds
+stopped converging: the symptom is now "both nodes stream, nothing is delivered, no error
+anywhere", and the remaining candidates are inside firmware behaviour this driver does not
+expose. Further progress needs the real mechanism rather than a forced pin — which is WP1 and
+WP2, the streams API and internal pads, and is what upstream is building anyway.
+
+### What is reusable
+
+- `scripts/pdaf-meta-capture.py` — line-based metadata capture over ctypes. Neither `yavta`
+  1.32.0 (no metadata formats at all) nor `v4l2-ctl` (no way to pass width/height) can do this.
+- `scripts/pdaf-correlate.py` — the phase correlator, verified against synthetic frames with
+  known disparities from -6 to +6 and recovering every one exactly. This is the piece WP3 needs.
+- `scripts/pdaf-decode.py`, `scripts/pdaf-phase0-capture.sh`, `scripts/pdaf-phase0-dt-sweep.sh`.
+- The driver branches `pdaf-phase0-hack` in both driver submodules, as a record of what was
+  tried and why each step was needed.
+
+### Hard-won knowledge of the ISYS streaming path
+
+Worth keeping; none of it is documented anywhere obvious.
+
+- `nr_queues` is the count of **active routes**, and `ipu6-isys-queue.c:377` withholds buffers
+  from the firmware until the number of streaming nodes equals it. An extra active route
+  therefore hangs ordinary single-node capture **silently**.
+- The vb2 queue type only becomes metadata on REQBUFS, via `vb2_queue_change_type`, not on
+  S_FMT — and link validation picks which format to compare by that queue type.
+- `get_stream_mask_by_pipeline` builds its mask from each node's **sink** stream and applies it
+  to the node's **source** pad. Those are equal under one-to-one routing, so the conflation is
+  invisible until a route breaks the assumption.
+- The format-mismatch path in `ipu6_isys_link_validate` logs at **debug** level, so a failed
+  capture reports nothing at default log level.
+- libcamera **reconfigures the media link topology** on configure(), disabling links set up
+  beforehand.
+
+### Recommended next move
+
+**WP5, the soft-ISP denoise work.** It is independent of all of this, addresses the noise the
+user actually sees, is open ground upstream, and needs no kernel changes. WP1 and WP2 remain the
+correct route to PDAF, but they depend on an unmerged 86-patch kernel series and should not be
+started until that lands or is deliberately backported.
+
+**To restore the machine:** `sudo rm /etc/modprobe.d/pdaf-phase0.conf` then reboot. All driver
+changes sit behind parameters that default to inert, so no rebuild is needed.
