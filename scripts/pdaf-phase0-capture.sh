@@ -62,7 +62,7 @@ echo "pdaf_hack_pad=$HACK_PAD  pdaf_paf_out=$PAF_OUT"
 RESTORE_SERVICES=0
 cleanup() {
 	set +e
-	pkill -f "yavta.*$PAF_NODE" 2>/dev/null
+	pkill -f "pdaf-meta-capture.py.*$PAF_NODE" 2>/dev/null
 	pkill -f "yavta.*$IMG_NODE" 2>/dev/null
 	media-ctl -d "$MDEV" -l "\"$CSI2\":2 -> \"Intel IPU6 ISYS Capture 9\":0 [0]" 2>/dev/null
 	if [ "$RESTORE_SERVICES" = "1" ]; then
@@ -85,14 +85,14 @@ echo "setting formats"
 media-ctl -d "$MDEV" -V "\"$CSI2\":2 [fmt:META_8/${PAF_W}x${PAF_H}]" 2>&1 | sed 's/^/  /' || \
 	echo "  NOTE: CSI2 pad-2 format set failed; the forced-dt path may not need it"
 
-yavta --no-query -f GENERIC_8 -s "${PAF_W}x${PAF_H}" -B meta-capture "$PAF_NODE" \
-	--capture=0 >/dev/null 2>&1 || true
-
 # --- capture ----------------------------------------------------------------
+# yavta 1.32.0 knows no metadata formats, and v4l2-ctl's --set-fmt-meta takes
+# only a fourcc with no way to pass width/height, which a line-based metadata
+# format requires. Hence our own tool.
 echo "starting PAF capture ($FRAMES frames) on $PAF_NODE"
-yavta --no-query -f GENERIC_8 -s "${PAF_W}x${PAF_H}" -B meta-capture \
-	-n 4 -c"$FRAMES" --file="$OUT/paf-#.bin" "$PAF_NODE" \
-	> "$OUT/yavta-paf.log" 2>&1 &
+python3 "$(dirname "$0")/pdaf-meta-capture.py" "$PAF_NODE" \
+	--width "$PAF_W" --height "$PAF_H" --count "$FRAMES" --outdir "$OUT" \
+	> "$OUT/paf-capture.log" 2>&1 &
 PAF_PID=$!
 sleep 1
 
@@ -111,14 +111,17 @@ IMG_PID=$!
   done ) &
 LENS_PID=$!
 
-wait $PAF_PID; PAF_RC=$?
+# set -e must not abort on a non-zero child; we want to report it.
+PAF_RC=0
+wait $PAF_PID || PAF_RC=$?
 wait $IMG_PID 2>/dev/null || true
 wait $LENS_PID 2>/dev/null || true
 
 # --- report -----------------------------------------------------------------
 echo
 echo "=== result ==="
-echo "PAF yavta exit: $PAF_RC"
+echo "PAF capture exit: $PAF_RC"
+echo "--- capture log ---"; sed 's/^/  /' "$OUT/paf-capture.log" 2>/dev/null | tail -25
 NPAF=$(ls "$OUT"/paf-*.bin 2>/dev/null | wc -l)
 echo "PAF buffers captured: $NPAF"
 if [ "$NPAF" -gt 0 ]; then
