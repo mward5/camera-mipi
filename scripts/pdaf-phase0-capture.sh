@@ -16,6 +16,8 @@ FRAMES="${1:-40}"
 OUT="${2:-$HOME/work/af-sweep-data/pdaf-phase0-$(date +%Y%m%d-%H%M%S)}"
 PAF_W=3968
 PAF_H=684
+IMG_W=3976
+IMG_H=2736
 # Lens positions to visit during the run, for the phase-vs-position curve.
 POSITIONS=(0 256 512 768 1023)
 
@@ -81,9 +83,17 @@ sleep 1
 echo "enabling CSI2 pad 2 -> Capture 9"
 media-ctl -d "$MDEV" -l "\"$CSI2\":2 -> \"Intel IPU6 ISYS Capture 9\":0 [1]"
 
-echo "setting formats"
-media-ctl -d "$MDEV" -V "\"$CSI2\":2 [fmt:META_8/${PAF_W}x${PAF_H}]" 2>&1 | sed 's/^/  /' || \
-	echo "  NOTE: CSI2 pad-2 format set failed; the forced-dt path may not need it"
+# The image pipeline needs its formats configured before streaming; libcamera
+# normally does this, and without it link validation fails with EPIPE on the
+# image node - which is why every run before this one captured zero frames on
+# both nodes. The PDAF pad's stream-1 format is seeded by the driver in
+# init_state, and media-ctl cannot address a stream without the streams API.
+echo "setting image pipeline formats (${IMG_W}x${IMG_H})"
+for ent in "\"s5k3j1 1-0010\":0" "\"$CSI2\":0" "\"$CSI2\":1"; do
+	media-ctl -d "$MDEV" -V "$ent [fmt:SGRBG10_1X10/${IMG_W}x${IMG_H}]" 2>&1 | sed "s|^|  set $ent: |"
+done
+echo "resulting pipeline formats:"
+media-ctl -d "$MDEV" -p 2>/dev/null | grep -E "^- entity .*(CSI2 1|s5k3j1)|fmt:" | sed 's/^/  /' | head -12
 
 # --- capture ----------------------------------------------------------------
 # yavta 1.32.0 knows no metadata formats, and v4l2-ctl's --set-fmt-meta takes
@@ -92,7 +102,7 @@ media-ctl -d "$MDEV" -V "\"$CSI2\":2 [fmt:META_8/${PAF_W}x${PAF_H}]" 2>&1 | sed 
 # The image node must start FIRST. The PDAF sink stream is stripped before the
 # sensor is asked for anything, so a PDAF-only start never brings it up.
 echo "starting image stream ($FRAMES frames) on $IMG_NODE"
-yavta --no-query -f SGRBG10 -s 3976x2736 -n 4 -c"$FRAMES" \
+yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" -n 4 -c"$FRAMES" \
 	--file="$OUT/img-#.raw" "$IMG_NODE" \
 	> "$OUT/yavta-img.log" 2>&1 &
 IMG_PID=$!
