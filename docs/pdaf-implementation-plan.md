@@ -1154,7 +1154,7 @@ those counters are run-to-run noise, and this is exactly the trap they describe.
 ### Status
 
 Ported as `mode_3976x2736_pdaf_regs[]` on branch `s5k3j1-pdaf-win-mode-table` in the
-ipu6-drivers fork (commit `bd99119`, rebased onto the tall-vblank removal `6f14227`): table
+ipu6-drivers fork (branch `s5k3j1-pdaf-win-mode-table`, commit `936c4a5`): table
 `0x21630` entries 6..448 under Intel's own recipe,
 machine-generated and round-trip verified against the binary, behind module param
 `pdaf_win_mode` (default 0, `0644`, read at set_format — so it A/B/As from sysfs without a
@@ -1389,3 +1389,33 @@ streams API and internal pads — which is what upstream is building anyway.
 this document suggesting it might be should be read in light of this section. The sensor side
 is done and proven. What remains is a single, well-defined receiver-side problem, gated on the
 unmerged metadata series rather than on any missing knowledge about the sensor.
+
+### Acted on: the PAF frame descriptor was wrong, and is now fixed
+
+`s5k3j1_get_frame_desc()` declared the PAF entry as `vc = 1` and
+`dt = MIPI_CSI2_DT_EMBEDDED_8B`. Both were guesses from July — this document flagged them as
+such in Finding 1 — and this session's evidence contradicts both. Corrected to `vc = 0` and
+`MIPI_CSI2_DT_USER_DEFINED(0)` (0x30), shipped as `8b6ee18` on `dell-xps9315-s5k3j1` and
+pinned by `ee96ef0`. The 3968x684 dimensions the driver already declared match the vendor
+descriptor exactly; only these two constants were wrong.
+
+The data type is from the vendor descriptors above. The virtual channel is measured: the
+receiver probe sees VC0 only, never VC1, across both mode tables.
+
+**Why the VC in particular matters.** `ipu6_isys_get_stream()` keys firmware streams by
+virtual channel, and `av->vc` is set at `ipu6-isys-video.c:1211` before the stream is chosen
+at `:1224`. A sideband claiming VC1 therefore lands on a *different* firmware stream from the
+image, while `nr_queues` — the active-route count — still expects both nodes to join one.
+`ipu6-isys-queue.c:377` then withholds buffers from both, silently, with no error anywhere.
+That is indistinguishable from the failure WP0 could not explain, and it would have been
+waiting for WP1 regardless.
+
+It is **not** what starved WP0, though: the phase-0 hack forced `av->vc = 0` before the stream
+was chosen, so both nodes did share one. That cause is still unknown, and settling it needs
+the two-pin firmware config dump — which means arming the forced pin once, as a diagnostic
+rather than as a resumption.
+
+Note also that this fix **cannot be verified on hardware**. `ipu6_isys_csi2_get_remote_desc()`
+selects the entry whose `.stream` matches the route's sink stream, so with the streams API
+compiled off and a single route, only entry 0 is ever consulted and the corrected lines are
+unreachable. What was verified is that the module builds, loads and streams with them in.
