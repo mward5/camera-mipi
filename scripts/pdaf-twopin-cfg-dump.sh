@@ -90,16 +90,28 @@ done
 python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
 	--height "$PAF_H" --set-format-only 2>&1 | sed 's/^/  metafmt: /'
 
+# Keep both programs' output. The first run of this script discarded it, and
+# the sideband node turned out to fail before it reached anything the driver
+# logs - so the kernel log showed the image node alone and said nothing about
+# why the second never arrived.
+IMG_LOG=$(mktemp); PAF_LOG=$(mktemp)
 echo "starting both nodes (the capture is expected to fail; the cfg is the point)"
 timeout 20 yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" -n 4 -c10 "$IMG_NODE" \
-	>/dev/null 2>&1 &
+	> "$IMG_LOG" 2>&1 &
 IMG_PID=$!
 sleep 0.5
 timeout 20 python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
-	--height "$PAF_H" --count 10 >/dev/null 2>&1 &
+	--height "$PAF_H" --count 10 > "$PAF_LOG" 2>&1 &
 PAF_PID=$!
 wait $IMG_PID 2>/dev/null || true
 wait $PAF_PID 2>/dev/null || true
+
+echo
+echo "--- image node ($IMG_NODE) ---"
+sed 's/^/  /' "$IMG_LOG" | tail -15
+echo "--- sideband node ($PAF_NODE) ---"
+sed 's/^/  /' "$PAF_LOG" | tail -20
+rm -f "$IMG_LOG" "$PAF_LOG"
 
 sleep 0.5
 mkdir -p "$(dirname "$OUT")"
