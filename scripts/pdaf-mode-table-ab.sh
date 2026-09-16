@@ -42,21 +42,43 @@ fi
 # stop to prompt in the middle of a timed capture.
 sudo -v
 
+# `systemctl --user stop` does NOT work for these, in any order. pipewire,
+# pipewire-pulse and wireplumber mutually require each other and
+# default.target wants pipewire, so the stop transaction contradicts itself,
+# systemd reports "Job for X canceled" and they are all back within a second -
+# still holding /dev/media0 and the sensor subdev. rmmod with those fds open
+# oopses the kernel. Masking is what actually releases them; verified to take
+# the camera fd count to zero on 2026-09-16.
+PW_UNITS=(pipewire.socket pipewire-pulse.socket pipewire.service
+	  pipewire-pulse.service wireplumber.service)
 RESTORE_SERVICES=0
 cleanup() {
 	set +e
 	pkill -f "yavta.*video" 2>/dev/null
 	echo 0 | sudo tee /sys/module/s5k3j1/parameters/pdaf_win_mode >/dev/null 2>&1
-	[ "$RESTORE_SERVICES" = "1" ] && \
-		systemctl --user start pipewire.socket pipewire wireplumber 2>/dev/null
+	if [ "$RESTORE_SERVICES" = "1" ]; then
+		systemctl --user unmask "${PW_UNITS[@]}" >/dev/null 2>&1
+		systemctl --user start pipewire.socket pipewire.service \
+			wireplumber.service >/dev/null 2>&1
+	fi
 }
 trap cleanup EXIT INT TERM
 
-# Stop the socket first or it reactivates the service and the stop is
-# cancelled - which silently leaves the camera held.
-systemctl --user stop wireplumber pipewire pipewire.socket 2>/dev/null || true
+echo "masking pipewire/wireplumber to release the camera"
 RESTORE_SERVICES=1
-sleep 1
+systemctl --user mask --now "${PW_UNITS[@]}" >/dev/null 2>&1 || true
+sleep 1.5
+
+held=0
+for f in /proc/*/fd/*; do
+	case "$(readlink "$f" 2>/dev/null)" in
+	/dev/video*|/dev/media*|/dev/v4l-subdev*) held=$((held+1)) ;;
+	esac
+done 2>/dev/null
+if [ "$held" -ne 0 ]; then
+	echo "ERROR: $held camera fds still open - refusing to continue." >&2
+	exit 1
+fi
 
 # Numbering is not stable across boots; a USB webcam has taken media0 before.
 MDEV=""
