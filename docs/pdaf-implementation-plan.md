@@ -1166,3 +1166,83 @@ come up on this receiver, not that the sensor emits nothing. Those are different
 on this branch can capture a sideband — the phase-0 ISYS hack is on another branch — so the
 trustworthy signal on the image node is a changed frame geometry or byte count, not the CSI-2
 error counters.
+
+## The PDAF mode table, measured — 2026-09-16
+
+Ported table `0x21630` run against the stock table on hardware, arms interleaved and
+repeated inside a single module load (`scripts/pdaf-mode-table-ab.sh`,
+`scripts/pdaf-sensor-readback.sh`, `scripts/pdaf-extra-lines.sh`).
+
+### It applies, and it streams
+
+Thirteen registers read back over I2C at 0x10 on i2c-1 **while streaming**, in each arm:
+every one holds exactly what the selected table wrote — `0x0114`, `0x0300`, `0x0302`,
+`0x0306`, `0x030C`, `0x0310`, `0x0340`, `0x0342`, `0x0900`, `0x0116`, `0x0110`, `0x0B80`,
+`0x0B88`. The stock arms hold stock values; registers absent from the stock table keep what
+the previous PDAF arm left. So the writes land and persist. 40/40 frames captured in every
+arm, both repeats. **The mode comes up on this receiver** — which also settles the link rate
+question: 1024 Mbps/lane carries over and no D-PHY retune is needed.
+
+### The sensor ignores most of what it stores
+
+| register | stock | PDAF | live? |
+| --- | --- | --- | --- |
+| `0x0340` FRM_LENGTH_LINES | 0x0b28 | 0x0b1e | **yes, exactly** |
+| `0x0342` LINE_LENGTH_PCK | 0x2510 | 0x24e0 | **no** |
+| `0x0300`/`0x0302`/`0x0306`/`0x030C`/`0x0310` PLL | — | — | **no** |
+| `0x0900` BINNING_MODE | 0x0221 | 0x0011 | **no** |
+
+`0x0340` is live in both modes to five significant figures: the PDAF arm at its default
+vblank 110 against a forced 120 gives a period ratio of 1.003511 where 2856/2846 predicts
+1.003514. Everything else is inert. The PLL values imply a readout clock nearly **twice**
+the stock one; measured line time moves 0.85%. Binning differs and the images are pixel-wise
+indistinguishable.
+
+**This is the structural finding, and it is bigger than the mode table.** The CCS-standard
+register file on this sensor is largely a façade: writable, faithfully read back, and not
+what configures the readout. That is one cause for what looked like three coincidences — the
+Round 1 register-by-register negative, this whole-table negative, and a binning register that
+does nothing. It also means **replaying registers from the Windows I2C trace cannot configure
+this sensor**, because those writes are not what configures it under Windows either. The
+actual configuration lives in the downloaded microcode (`0x90C8..0x9248`, 193 entries),
+which is **byte-identical across all three tables and already matched by our driver**.
+
+### The one real difference: +0.8498% line time
+
+Line time, from a vblank sweep of 120/300/600/1200 in both arms:
+
+| | line time | spread across the sweep |
+| --- | --- | --- |
+| stock | 11608.7 ns | 0.004% |
+| PDAF table | 11707.4 ns | 0.003% |
+| ratio | **1.008498** | **0.0065%** |
+
+A fixed extra-line-count model fits the same data at 33.6% spread, so it is excluded: there
+are **no extra lines**. The PDAF line is simply ~98.7 ns longer — roughly 40 extra pixel
+periods — and `0x0342` says it should be 0.51% *shorter*, so this is not that register either.
+
+### What was excluded, and what it leaves
+
+Ruled out by measurement, each with same-session controls:
+
+- extra lines per frame (vblank sweep, above)
+- embedded PD rows at one-in-four (row%4 means are period-2 Bayer, 382/391, identical in
+  both arms; `PAFi` is 3968x684 and 684 = 2736/4, so this was the obvious layout)
+- embedded PD at column residues 2, 4, 8, 16 (period-2 Bayer only, 394/383)
+- PD in the 24 trailing samples per line beyond the active width — identical between arms,
+  the largest pairwise difference being *within* the stock arm; the profile is a smooth
+  monotonic decay, i.e. optical-black/shading tail
+- any change in frame size, frame content, or row profile
+
+**Not ruled out, and now the leading candidate:** a second data type on the wire. Extra time
+per line with no extra bytes delivered is exactly what an interleaved second DT would cost —
+the receiver spends the time and discards it, having no pin configured for that DT. The
+`Inter-frame long packet discarded` error appears on every stream start in both arms.
+
+The decisive measurement is receiver-side and does not need a capture path:
+`ipu6_isys_csi2_isr` (`ipu6-isys.c:307`) already reads per-VC frame-start and frame-end bits
+for every VC from `CSI_PORT_REG_BASE_IRQ_CSI_SYNC`, and silently drops the ones with no
+registered stream. Counting them per VC and reporting on stream-off says whether a second
+virtual channel is arriving, regardless of whether anything can capture it.
+`scripts/dump-csi2-port.py` plus `reference/csi2-port1-rear-live.bin` is the no-rebuild
+alternative: diff the port register block between arms while streaming.
