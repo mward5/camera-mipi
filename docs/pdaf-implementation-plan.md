@@ -988,11 +988,37 @@ param collapses to `0=on, 1=disable`, and both places that test it now read the 
 This is independent of the PDAF mode-table port on `s5k3j1-pdaf-win-mode-table`, which
 carries its own frame length and already excluded itself from this path.
 
-### Still to confirm on the patched build
+### Confirmed against the sensor and against the patched build
 
-The measurement above isolates the frame length with the **stock** module, by forcing the
-VBLANK control — which is the cleaner experiment, since it changes nothing else. Three checks
-against the patched module itself are scripted but not yet run (they need root, and the sudo
-prompt timed out unattended): the I2C read-back of `0x0340` mid-stream for each arm, the
-`pdaf_trial=0` vs `=1` param arm, and loading the patched `.ko` to confirm the default VBLANK
-now comes up at 120. Script: `scratchpad/vblank-verify-root.sh` from that session.
+The measurement above isolates the frame length with the **stock** module by forcing the
+VBLANK control, which changes nothing else. Three further checks were then run as root, in
+one session:
+
+**`0x0340` read back over I2C, mid-stream.** `i2ctransfer -f -y 1 w2@0x10 0x03 0x40 r2`
+while `yavta` streams, with `0x0000` read alongside as a sanity check (`0x30a1` =
+`S5K3J1_CHIP_ID`, every time). The driver's writes land exactly as predicted — the register
+is not merely a control value the driver believes in:
+
+| Arm | VBLANK | `0x0340` | fps |
+| --- | --- | --- | --- |
+| tall (default) | 684 | `0x0d5c` = 3420 | 25.187 |
+| stock (forced) | 120 | `0x0b28` = 2856 | 30.162 |
+| tall, repeat | 684 | `0x0d5c` = 3420 | 25.188 |
+| stock, repeat | 120 | `0x0b28` = 2856 | 30.161 |
+
+**The `pdaf_trial` param arm.** `pdaf_trial=1` → VBLANK 120, `0x0340` = `0x0b28`, 30.161 fps;
+back to `pdaf_trial=0` → 684, `0x0d5c`, 25.188 fps. Worth noting because `pdaf_trial=1` *also*
+writes `s5k3j1_pdaf_disable_regs` — including the binning register `0x0900` (`0x0221` →
+`0x0200`) — and still lands on the same 30.161 fps as the forced-VBLANK arm that writes none
+of them. So that confound was harmless, and the frame length really is the whole effect.
+
+**The patched module itself.** Built, signed with the DKMS MOK key, `rmmod`/`insmod`ed with
+the loaded `srcversion` checked against the file on disk (`F7619AF0CB970175866A0D3`, matching
+— not a stale DKMS module). With nothing forced at all, the default now comes up at VBLANK
+120, `0x0340` = `0x0b28`, **30.161 fps, twice** — identical to the forced-VBLANK arm, so the
+patch changes the default and nothing else. `modinfo` confirms the collapsed param:
+`pdaf_trial:INT346D PDAF: 0=on, 1=disable`. The stock DKMS module was then restored
+(`srcversion` back to `1C5C463B3515D90BB66C5F8`, default VBLANK back to 684).
+
+Eight independent measurements at frame length 2856 all read 30.161–30.162 fps; four at 3420
+all read 25.187–25.188. Script kept at `scratchpad/vblank-verify-root.sh` from that session.
