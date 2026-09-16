@@ -127,14 +127,25 @@ run_arm() {
 
 	local captured fps bytes vts errs
 	captured=$(grep -c '^[0-9]* ([0-9]*)' "$log" || true)
-	fps=$(sed -n 's/.*(\([0-9.]*\) fps.*/\1/p' "$log" | tail -1)
+	# yavta's summary line averages over the whole run including
+	# stream-start latency, which is worth ~2.5% here and swamps the
+	# sub-1% effects we are trying to resolve. Take the median of the
+	# per-frame rates instead, dropping warm-up - the method the
+	# tall-vblank measurement used, where it resolved 0x0340 to five
+	# significant figures.
+	fps=$(grep -v '^Captured' "$log" \
+		| sed -n 's/.* \([0-9][0-9.]*\) fps.*/\1/p' \
+		| tail -n +4 | sort -g \
+		| awk '{v[NR]=$1} END{if(NR)printf "%.4f", (NR%2)?v[(NR+1)/2]:(v[NR/2]+v[NR/2+1])/2}')
+	fps_avg=$(sed -n 's/.*(\([0-9.]*\) fps.*/\1/p' "$log" | tail -1)
 	bytes=$(sed -n 's/^[0-9]* ([0-9]*) \[[^]]*\] [^ ]* [0-9]* \([0-9]*\) B.*/\1/p' "$log" | tail -1)
 	vts=$(v4l2-ctl -d "$(media-ctl -d "$MDEV" -e 's5k3j1 1-0010')" \
 		--get-ctrl vertical_blanking 2>/dev/null | sed 's/.*: //')
 	errs=$($DMESG 2>/dev/null | tail -n +"$((since+1))" | grep -c 'csi2-1 error' || true)
 
-	printf '| %-14s | %7s | %9s | %12s | %8s | %6s |\n' \
-		"$label" "${captured:-0}" "${fps:-—}" "${bytes:-—}" "${vts:-—}" "${errs:-—}"
+	printf '| %-14s | %7s | %9s | %9s | %12s | %8s | %6s |\n' \
+		"$label" "${captured:-0}" "${fps:-—}" "${fps_avg:-—}" \
+		"${bytes:-—}" "${vts:-—}" "${errs:-—}"
 	$DMESG 2>/dev/null | tail -n +"$((since+1))" | grep 'csi2-1 error' \
 		| sed 's/.*csi2-1 error/    csi2-1 error/' | sort | uniq -c | sed 's/^/  /'
 	rm -f "$log"
@@ -145,10 +156,10 @@ mkdir -p "$OUTDIR"
 echo "frames for content comparison: $OUTDIR"
 echo
 
-printf '| %-14s | %7s | %9s | %12s | %8s | %6s |\n' \
-	"arm" "frames" "fps" "bytes/frame" "vblank" "errs"
-printf '| %-14s | %7s | %9s | %12s | %8s | %6s |\n' \
-	"---" "---" "---" "---" "---" "---"
+printf '| %-14s | %7s | %9s | %9s | %12s | %8s | %6s |\n' \
+	"arm" "frames" "fps-med" "fps-avg" "bytes/frame" "vblank" "errs"
+printf '| %-14s | %7s | %9s | %9s | %12s | %8s | %6s |\n' \
+	"---" "---" "---" "---" "---" "---" "---"
 for m in "${ARMS[@]}"; do
 	[ "$m" = 0 ] && run_arm 0 "stock" || run_arm 1 "pdaf_win_mode"
 done
@@ -157,6 +168,13 @@ echo
 echo "Expected if nothing changed: 3976x2736 x 10bpp packed = 21888000 bytes/frame."
 echo "A different byte count or frame geometry is the trustworthy signal here."
 echo "Error counts vary run to run with nothing changed - compare arms, not runs."
+echo "fps-med is the median of per-frame rates after warm-up; fps-avg is yavta's"
+echo "whole-run average, which includes stream-start latency. Trust fps-med."
+echo
+echo "Predicted fps ratio if 0x0340 AND 0x0342 are both live:"
+echo "  (2856 x 9488) / (2846 x 9440) = 1.00862  -> pdaf 0.86% FASTER"
+echo "If only 0x0340 is live:  2856/2846 = 1.00351 -> pdaf 0.35% FASTER"
+echo "If neither is live:      1.00000"
 echo
 echo "=== frame content (SGRBG10 packed, per-arm single frame) ==="
 python3 "$(dirname "$0")/pdaf-compare-frames.py" "$OUTDIR"
