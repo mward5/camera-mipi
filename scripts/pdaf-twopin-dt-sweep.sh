@@ -30,7 +30,11 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMG_W=3976; IMG_H=2736; PAF_W=3968; PAF_H=684
-DTS=(0x2b 0x12 0x30 0x2b)     # repeated: the first arm is also the control
+# "none" is a single-node arm with the sideband link DISABLED: the
+# configuration known to capture. Without it every row reading zero is
+# indistinguishable from a broken harness, which is how three measurements
+# went wrong earlier in this work. It runs first and last.
+DTS=(none 0x2b 0x12 0x30 0x2b none)
 HACK=/sys/module/intel_ipu6_isys/parameters
 
 [ -e "$HACK/pdaf_hack_dt" ] || { echo "ERROR: forced-pin build not loaded" >&2; exit 1; }
@@ -72,34 +76,49 @@ mkdir -p "$PAFDIR"
 echo "media $MDEV  image $IMG_NODE  sideband $PAF_NODE"
 echo
 
-printf '| %-6s | %-14s | %-14s |\n' "dt" "image frames" "sideband frames"
+printf '| %-6s | %-14s | %-14s |\n' "arm" "image frames" "sideband frames"
 printf '| %-6s | %-14s | %-14s |\n' "---" "---" "---"
 for dt in "${DTS[@]}"; do
-	printf '%d' "$dt" | sudo tee "$HACK/pdaf_hack_dt" >/dev/null
-	media-ctl -d "$MDEV" -l "\"$CSI2\":2 -> \"Intel IPU6 ISYS Capture 9\":0 [1]" 2>/dev/null
+	twopin=1
+	if [ "$dt" = none ]; then
+		twopin=0
+		media-ctl -d "$MDEV" -l "\"$CSI2\":2 -> \"Intel IPU6 ISYS Capture 9\":0 [0]" 2>/dev/null
+	else
+		printf '%d' "$dt" | sudo tee "$HACK/pdaf_hack_dt" >/dev/null
+		media-ctl -d "$MDEV" -l "\"$CSI2\":2 -> \"Intel IPU6 ISYS Capture 9\":0 [1]" 2>/dev/null
+	fi
 	for e in "\"s5k3j1 1-0010\":0" "\"$CSI2\":0" "\"$CSI2\":1"; do
 		media-ctl -d "$MDEV" -V "$e [fmt:SGRBG10_1X10/${IMG_W}x${IMG_H}]" >/dev/null 2>&1 || true
 	done
-	python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
-		--height "$PAF_H" --set-format-only >/dev/null 2>&1 || true
-
-	il=$(mktemp); pl=$(mktemp)
-	timeout 15 python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
-		--height "$PAF_H" --count 5 --outdir "$PAFDIR/dt$dt" > "$pl" 2>&1 &
-	pp=$!
-	sleep 0.5
+	il=$(mktemp); pl=$(mktemp); pp=""
+	if [ "$twopin" = 1 ]; then
+		python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
+			--height "$PAF_H" --set-format-only >/dev/null 2>&1 || true
+		timeout 15 python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
+			--height "$PAF_H" --count 5 --outdir "$PAFDIR/dt$dt" > "$pl" 2>&1 &
+		pp=$!
+		sleep 0.5
+	fi
 	timeout 15 stdbuf -oL -eL yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" \
 		-n 4 -c5 "$IMG_NODE" > "$il" 2>&1 &
 	ip=$!
-	wait $ip 2>/dev/null || true; wait $pp 2>/dev/null || true
+	wait $ip 2>/dev/null || true
+	[ -n "$pp" ] && { wait $pp 2>/dev/null || true; }
 
 	imgf=$(sed -n 's/^Captured \([0-9]*\) frames.*/\1/p' "$il" | tail -1)
-	paff=$(grep -c '^frame ' "$pl" 2>/dev/null || echo 0)
+	# grep -c prints 0 AND returns non-zero when it matches nothing, so a
+	# "|| echo 0" fallback appends a second line. Swallow the status instead.
+	paff=$(grep -c '^frame ' "$pl" 2>/dev/null || true)
+	[ "$twopin" = 1 ] || paff="-"
 	printf '| %-6s | %-14s | %-14s |\n' "$dt" "${imgf:-0}" "${paff:-0}"
 	rm -f "$il" "$pl"
 	media-ctl -d "$MDEV" -l "\"$CSI2\":2 -> \"Intel IPU6 ISYS Capture 9\":0 [0]" 2>/dev/null
 	sleep 1
 done
+echo
+echo "READ THE 'none' ARMS FIRST. They are single-node captures with the"
+echo "sideband link disabled - the configuration known to work. If they read 0,"
+echo "this harness is broken and every other row is meaningless."
 echo
 echo "The 0x2b arms are the control: that data type certainly arrives. If the"
 echo "image node captures there and not at 0x30, the two-pin mechanism works"
