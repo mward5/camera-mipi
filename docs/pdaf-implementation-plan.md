@@ -146,9 +146,14 @@ stream-start) vs the Linux mode table `mode_3976x2736_regs` (`s5k3j1.c:145-723`)
 | `0x0116` | `0x2B00` in Phase D, then **`0x3000`** in Phase E | `0x2B00` only (`:476`, `:676`) | MIPI data type of the second (PD) output: 0x2B = RAW10, **0x30 = User-Defined 1** |
 | `0x0118` | `0x0000` | `0x0000` | probably PD output virtual channel = **0** |
 | `0x0B80` | **`0x0100`** | `0x0000` (`:713`) | PD tail/sideband output enable |
-| `0x0B84` | `0x0201` | `0x0201` | PD config (unchanged) |
+| `0x0B84` | `0x0201` | `0x0201` in the mode table, but **zeroed at every stream start** by `s5k3j1_pdaf_disable_regs` (`:737`) | PD config — **NOT unchanged**, see the 2026-09-16 follow-up |
 | `0x0B88..` | 8 zero bytes | absent | PD window/offset clear |
-| `0x0900/0x0901` | `0x00`/`0x11` | `0x0221` (`:709`) | binning mode/type — differs, may or may not matter |
+| `0x0900/0x0901` | `0x00`/`0x11` | `0x0221` (`:709`), likewise overwritten to `0x0200` at stream start (`:738`) | binning mode/type — differs, may or may not matter |
+| `0x0110` | **`0x0002`** | absent entirely | written immediately before `0x0116`; purpose unknown |
+
+The "Linux" column above is what the **tables** contain. The effective values at stream start
+are not the same thing: `s5k3j1_start_streaming()` calls `s5k3j1_apply_pdaf_trial()` after the
+mode table, which deliberately tears PDAF back down. This was missed until 2026-09-16.
 
 Hypothesis to test first (WP0): the PAF sideband is **VC 0, DT 0x30, 8-bit user-defined,
 3968 bytes x 684 lines**, enabled by `0x0B80=0x0100` + `0x0116=0x3000`. The archived WIP's
@@ -687,11 +692,14 @@ worth more than the attempt cost, and is recorded below.
 - **The data type is NOT the variable.** Six candidates failed identically; then the decisive
   control, setting the sideband pin to the very data type the image stream uses, also produced
   nothing — **and starved the image node too**. So a second input pin stops the whole stream
-  regardless of what it is labelled.
+  regardless of what it is labelled. (Briefly retracted on 2026-09-16 for resting on a baseline
+  that had never been run, then reinstated the same day once that baseline was established. See
+  the follow-up section.)
 - **It is not the receiver being re-initialised.** Refcounting the front-end setup changed
   nothing, and the refcount never even reported a second entry.
-- **The sensor-side register hypothesis was never tested**, because no configuration ever
-  delivered a buffer to compare against.
+- **The sensor-side register hypothesis was never tested during WP0**, because no configuration
+  ever delivered a buffer to compare against. It was tested on 2026-09-16 and came back inert —
+  again, see the follow-up section.
 
 ### Why it stops here
 
@@ -736,4 +744,174 @@ correct route to PDAF, but they depend on an unmerged 86-patch kernel series and
 started until that lands or is deliberately backported.
 
 **To restore the machine:** `sudo rm /etc/modprobe.d/pdaf-phase0.conf` then reboot. All driver
-changes sit behind parameters that default to inert, so no rebuild is needed.
+changes sit behind parameters that default to inert, so no rebuild is needed. (Done on
+2026-09-15; the machine has booted disarmed since.)
+
+## WP0 follow-up — 2026-09-16, the baseline WP0 never had
+
+Three questions were left dangling by the WP0 write-up above. All three were answered on
+2026-09-16, cheaply, on a disarmed machine. **None of it required the forced-pin approach, and
+one of the answers should have been obtained before WP0 started.**
+
+### 1. The capture harness works — this was never demonstrated during WP0
+
+Across all twenty WP0 run directories in `~/work/af-sweep-data/pdaf-phase0-*`, the image node
+captured **zero frames**: six runs failed `STREAMON` with `EPIPE`, one with `EINVAL`, nine died
+before `yavta` ran at all, and the final three mapped buffers and then hung with no error. So
+every WP0 conclusion was measured against a capture path that had never been shown to work.
+
+Running the same `media-ctl` + raw `yavta` sequence against the **normal, disarmed driver**
+settles it:
+
+```
+Captured 5 frames in 0.227309 seconds (21.996419 fps)
+```
+
+Five frames of 21,888,000 bytes, 84–85% non-zero, full 0–1023 range, each frame differing from
+the next. Real sensor data. **The harness is sound, and the phase-0 code compiled into the
+module is genuinely inert when disarmed.**
+
+The consequence runs both ways. It vindicates the "a second input pin starves the whole stream"
+finding — arming demonstrably breaks a path that otherwise works. But strictly, what is proven
+is that *something in the armed configuration* stops delivery; the armed runs differ from this
+baseline in several ways at once (second route, second pin, the extra enabled link, the
+pre-set metadata format, and the sensor register writes). "Second input pin" is the leading
+suspect, not a proven cause.
+
+**Lesson, and it is the same one as Finding 5: run the control first.** Twelve rounds of
+receiver-side debugging were spent without ever establishing what a working run looked like.
+
+### 2. The sensor-side registers are inert as currently written
+
+With `pdaf_paf_out=1` and `pdaf_hack_pad=-1` — sensor writes only, ISYS completely untouched —
+the sensor confirms the writes land:
+
+```
+s5k3j1 i2c-INT346D:00: PAF sideband enabled (0x0B80=0x0100, 0x0116=0x3000)
+```
+
+and **nothing changes**:
+
+| Measure | disarmed | `pdaf_paf_out=1` |
+| --- | --- | --- |
+| Frames captured | 5 @ 25.19 fps | 5 @ 25.19 fps |
+| Frame size | 2736 × 8000 = 21,888,000 | identical |
+| CSI-2 errors | 3 at stream start | byte-identical, same order |
+| Extra lines in frame | none | none |
+
+A 3× drop in frame mean (367 → 122) looked promising for about ten minutes, then reproduced on a
+second disarmed run (134), so it tracks the first run inheriting exposure state from libcamera's
+AGC rather than anything PDAF-related. Per-frame means are stable to within 1% inside each run.
+
+So the two register writes do not enable a sideband, do not break the image stream, and do not
+retag the image data type. Which is exactly what the next finding predicts.
+
+### 3. The Windows enable sequence is longer than two registers
+
+The comment in `s5k3j1.c` claiming the trace "leaves exactly two register writes unaccounted
+for" is **wrong**. Diffing `docs/windows-agent-findings-i2c-mode-regs-2026-07-17.md` against the
+driver properly:
+
+| Register | Mode table | Windows | Verdict |
+| --- | --- | --- | --- |
+| `0x0B80` | 0x0000 | 0x0100 | supplied by `paf_out` |
+| `0x0116` | 0x2B00 | 0x3000 | supplied by `paf_out` |
+| `0x0B84` | 0x0201 | 0x0201 | **same — see correction below** |
+| `0x0B02` | 0x0106 | 0x0103 | differs |
+| `0x0B04` | 0x0101 | 0x0001 | differs |
+| `0x0B08` | *absent* | **0x0001** | **MISSING — see §4** |
+| `0x0110` | *absent* | 0x0002 | missing |
+| `0x0B88..0x0B8E` | *absent* | 0x0000 | missing |
+| `0x0900` | 0x0221 | 0x0011 | differs (binning) |
+
+**Correction, same day:** an earlier version of this section claimed our driver "actively
+disables PDAF on every stream start" by zeroing `0x0B84`. It does not. `s5k3j1_apply_pdaf_trial()`
+returns early unless `pdaf_trial >= 1`, and the default is 0, so `s5k3j1_pdaf_disable_regs` never
+runs. `0x0B84` keeps the mode table's `0x0201`, which already matches Windows. The real gap is
+the four rows marked missing or differing above.
+
+Note also that the Windows trace writes `0x0116` **twice** with different values: `0x2B00` in
+Phase D (0x2B = RAW10, the image) and `0x3000` in Phase E (0x30 = user-defined 1), five writes
+before `MODE_SELECT`. That a register holding the image data type is reprogrammed to exactly the
+DT we guessed, immediately before stream-on, is strong evidence the sideband guess was sound —
+and the test in §2 shows it is not *sufficient* on its own.
+
+### 4. Round 1 — the missing registers added, and what they actually do
+
+The three writes Windows makes that this driver never made at all (`0x0B08`, the
+`0x0B88..0x0B8E` clear, and `0x0110 = 0x0002`) were added and tested. To attribute an effect to a
+register rather than to a batch, `pdaf_paf_out` was then made a **bitmask** — 0x01 the
+`0x0B80`+`0x0116` pair, 0x02 `0x0B08`, 0x04 the `0x0B88` clear, 0x08 `0x0110` — with each group
+logging its own line when applied, so the kernel log reports what ran rather than what was asked
+for. One rebuild, one module load, then pure sysfs A/B/A.
+
+**PDAF result: a clean negative.** No sideband, under any combination. Frame geometry stayed
+3976x2736 with the frame exactly 2736 x 8000 bytes, no extra lines, no new data type, and no
+change to `Inter-frame long packet discarded`. **Every PDAF-specific register identified from the
+Windows trace — `0x0B80`, `0x0116`, `0x0110`, `0x0B88..0x0B8E` — is inert, alone and in
+combination.** This is measured, not inferred.
+
+**But `0x0B08` turned out to be the sensor's defect pixel correction enable**, and the mode table
+never wrote it. Measured by toggling that group alone:
+
+| `pdaf_paf_out` | max sample | pixels > 700 |
+| --- | --- | --- |
+| 0 (off) | 1023 | 18 |
+| 2 (`0x0B08` only) | **397** | **0** |
+| 12 (the two PD groups, no `0x0B08`) | 1023 | 20 |
+
+The 18 are **permanent sensor defects**, not scene content: the same 18 coordinates recur in
+every frame, across separate captures and across separate module builds, reading a saturated
+1023 regardless of what the camera is pointed at. With `0x0B08 = 0x0001` they read values
+consistent with their neighbourhoods — one that saturated at 1023 reads 119 where its four
+nearest same-colour neighbours read 122, 110, 123, 114 — so the sensor interpolates them rather
+than clipping. Frame rate, geometry and mean level are unchanged.
+
+`0x0B08` sits at the top of the CCS/SMIA defect-correction block (`0x0B02`..`0x0B08`), three
+quarters of which the mode table already writes. **This is shipped separately** as a one-line
+commit on branch `s5k3j1-defect-correction` in the `ipu6-drivers` fork, off the published
+`dell-xps9315-s5k3j1` — it is an ordinary sensor bug fix with a measurable before and after, and
+owes nothing to the PDAF work.
+
+### 5. The CSI-2 error signature is noise — do not read it as a signal
+
+Two consecutive captures, same module, same load, `pdaf_paf_out=0` for both, produced completely
+different error sets: first the mild one (`Incomplete long packet` / `DPHY recoverable sync` /
+`Inter-frame long packet discarded`), then the severe one (`DPHY fatal` / `FIFO overflow` /
+`SOT sync error` / `Multiple packet header errors`). It varies run to run with nothing changed.
+
+This matters because the severe set was briefly mistaken for evidence that the sensor had started
+emitting an extra data type — `FIFO overflow` is exactly what an unhandled second stream would
+look like. It appeared with the registers **off**. Any future reading of these counters needs a
+same-session control, and probably several.
+
+### Where this leaves WP0's central question
+
+Still open, and the sensor-side branch of it is now **closed as a negative**. There were two
+independent defects, and WP0 could only ever see the first:
+
+1. **Arming breaks image delivery.** Receiver-side, reproducible, demonstrated by contrast with a
+   working baseline.
+2. **The sensor enable sequence is incomplete.** Sensor-side — now completed as far as the
+   Windows trace allows, and the completed sequence is still inert.
+
+Defect 1 masked defect 2 entirely. With defect 2 settled, the remaining sensor-side unknowns are
+only `0x0900` (binning, Windows `0x0011` vs our `0x0221`, the riskiest to the image) and the
+`0x0B02`/`0x0B04` deltas — both of which are now known to be in the *defect-correction* block,
+not a PD block, so neither is a promising PDAF lead.
+
+**The conclusion that follows:** the sideband, if it exists, is not gated by any register we can
+identify from the I2C trace. Either the enable lives somewhere the trace does not show, or the
+sensor's PD output is configured through something other than these registers. Further sensor-side
+guessing is not indicated. The passive receiver-register observation in the lead below is the
+cheapest remaining source of new evidence.
+
+### Incidental lead worth keeping
+
+`csi2-1 error: Inter-frame long packet discarded` appears in the **normal, working, PDAF-free**
+configuration, on every stream start. The receiver is discarding some long packet between frames
+during ordinary operation. That may be embedded data the sensor always emits, or it may be more
+interesting. It is a passive observation on a working camera, so it costs nothing to chase, and
+it is the kind of evidence WP0 needed and never had: `scripts/dump-csi2-port.py` reads 0x300
+bytes of per-port GPREG/IRQ/PPI2CSI/FE registers straight off the PCI BAR while a stream runs,
+and `reference/csi2-port1-rear-live.bin` is a known-good reference capture.
