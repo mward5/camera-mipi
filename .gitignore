@@ -18,3 +18,10 @@ __pycache__/
 
 # Compiled output of scripts/aiqb-dump-cmc-build.sh.
 /scripts/aiqb-dump-cmc
+
+# SlickEdit per-user workspace state, regenerated on every session - the
+# project/workspace definitions themselves (camera-mipi.vpj/.vpw) are kept.
+*.vpwhist
+*.vpwhistu
+*.vtg
+*.vpwwildcardcache

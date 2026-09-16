@@ -1,0 +1,370 @@
+<!DOCTYPE Project SYSTEM "http://www.slickedit.com/dtd/vse/10.0/vpj.dtd">
+<Project
+	Version="10.0"
+	VendorName="SlickEdit"
+	TemplateName="GNU C/C++"
+	WorkingDir="."
+	BuildSystem="automakefile">
+	<Config
+		Name="Debug"
+		Type="gnuc"
+		DebugCallbackName="gdb"
+		Version="1"
+		OutputFile=""
+		CompilerConfigName="Latest Version">
+		<Menu>
+			<Target
+				Name="Compile"
+				MenuCaption="&amp;Compile"
+				Dialog="_gnuc_options_form Compile"
+				CaptureOutputWith="ProcessBuffer"
+				Deletable="0"
+				OutputExts="*.o"
+				SaveOption="SaveCurrent"
+				RunFromDir="%rw">
+				<Exec CmdLine='gcc -c %xup %defd -g -o "%bd%n%oe" %i "%f"'/>
+			</Target>
+			<Target
+				Name="Link"
+				MenuCaption="&amp;Link"
+				ShowOnMenu="Never"
+				Dialog="_gnuc_options_form Link"
+				CaptureOutputWith="ProcessBuffer"
+				Deletable="0"
+				SaveOption="SaveCurrent"
+				RunFromDir="%rw">
+				<Exec CmdLine=""/>
+			</Target>
+			<Target
+				Name="Build"
+				MenuCaption="&amp;Build out-of-tree modules"
+				CaptureOutputWith="ProcessBuffer"
+				Deletable="0"
+				SaveOption="SaveWorkspaceFiles"
+				RunFromDir="%rw">
+				<Exec CmdLine='bash -c &apos;K=/lib/modules/$(uname -r)/build; set -e; make -C "$K" M="%rwdrivers/linux-xps9315-2in1/drivers/media/pci/intel" modules; make -C "$K" M="%rwdrivers/linux-xps9315-2in1/drivers/platform/x86/intel/int3472" modules; make -C "$K" M="%rwdrivers/ipu6-drivers" drivers/media/i2c/s5k3j1.ko; make -C "$K" M="%rwdrivers/lc898217" modules&apos;'/>
+			</Target>
+			<Target
+				Name="Rebuild"
+				MenuCaption="&amp;Rebuild out-of-tree modules"
+				CaptureOutputWith="ProcessBuffer"
+				Deletable="0"
+				SaveOption="SaveWorkspaceFiles"
+				RunFromDir="%rw">
+				<Exec CmdLine='bash -c &apos;K=/lib/modules/$(uname -r)/build; set -e; for m in drivers/linux-xps9315-2in1/drivers/media/pci/intel drivers/linux-xps9315-2in1/drivers/platform/x86/intel/int3472 drivers/ipu6-drivers drivers/lc898217; do make -C "$K" M="%rw$m" clean; done; make -C "$K" M="%rwdrivers/linux-xps9315-2in1/drivers/media/pci/intel" modules; make -C "$K" M="%rwdrivers/linux-xps9315-2in1/drivers/platform/x86/intel/int3472" modules; make -C "$K" M="%rwdrivers/ipu6-drivers" drivers/media/i2c/s5k3j1.ko; make -C "$K" M="%rwdrivers/lc898217" modules&apos;'/>
+			</Target>
+			<Target
+				Name="Debug"
+				MenuCaption="&amp;Debug"
+				Dialog="_gnuc_options_form Run/Debug"
+				BuildFirst="0"
+				CaptureOutputWith="ProcessBuffer"
+				Deletable="0"
+				SaveOption="SaveNone"
+				RunFromDir="%rw">
+				<Exec CmdLine=""/>
+			</Target>
+			<Target
+				Name="Execute"
+				MenuCaption="E&amp;xecute"
+				Dialog="_gnuc_options_form Run/Debug"
+				BuildFirst="0"
+				CaptureOutputWith="ProcessBuffer"
+				Deletable="0"
+				SaveOption="SaveWorkspaceFiles"
+				RunFromDir="%rw">
+				<Exec CmdLine=""/>
+			</Target>
+			<Target
+				Name="dash"
+				MenuCaption="-"
+				Deletable="0">
+				<Exec/>
+			</Target>
+			<Target
+				Name="GNU C Options"
+				MenuCaption="GNU C &amp;Options..."
+				ShowOnMenu="HideIfNoCmdLine"
+				Deletable="0"
+				SaveOption="SaveNone">
+				<Exec
+					CmdLine="gnucoptions"
+					Type="Slick-C"/>
+			</Target>
+		</Menu>
+		<Includes>
+			<Include Dir="drivers/linux-xps9315-2in1/include"/>
+			<Include Dir="drivers/linux-xps9315-2in1/include/uapi"/>
+			<Include Dir="drivers/linux-xps9315-2in1/arch/x86/include"/>
+			<Include Dir="drivers/linux-xps9315-2in1/arch/x86/include/uapi"/>
+			<Include Dir="drivers/linux-xps9315-2in1/drivers/media/pci/intel"/>
+			<Include Dir="drivers/ipu6-drivers/include"/>
+			<Include Dir="drivers/ipu6-drivers/include/uapi"/>
+			<Include Dir="../git-ubuntu/libcamera/include"/>
+			<Include Dir="../git-ubuntu/libcamera/src"/>
+			<Include Dir="../intel/ipu6-camera-hal/include"/>
+			<Include Dir="../intel/ipu6-camera-bins/include"/>
+		</Includes>
+		<Libs PreObjects="0"/>
+		<List Name="GNUC Options">
+			<Item
+				Name="LinkerOutputType"
+				Value="Executable"/>
+		</List>
+	</Config>
+	<Files>
+		<Folder
+			Name="00 Project root"
+			Filters="">
+			<F N="README.md"/>
+			<F N="STATUS.md"/>
+			<F N="LICENSE"/>
+			<F N="dkms.conf"/>
+			<F N=".gitmodules"/>
+			<F N=".gitignore"/>
+		</Folder>
+		<Folder
+			Name="01 docs - findings, plans, RE write-ups"
+			Filters="">
+			<F
+				N="docs/*"
+				Recurse="1"
+				Excludes="*.etl;*.bin;*.o;*.so;*.a;*.ko;*.png;*.jpg;*.jpeg;*.gif;*.pdf;*.gz;*.xz;*.bz2;*.zip;*.tar;.git/;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="02 scripts - build, capture, analysis"
+			Filters="">
+			<F
+				N="scripts/*"
+				Recurse="1"
+				Excludes="__pycache__/;*.pyc;*.o;*.so;*.a;*.ko;*.bin;.git/;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="03 driver - lc898217 VCM (new driver)"
+			Filters="">
+			<F
+				N="drivers/lc898217/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.ko;*.mod;*.mod.c;*.cmd;*.order;*.symvers;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="04 driver - ipu6-drivers fork (s5k3j1 sensor, psys)"
+			Filters="">
+			<F
+				N="drivers/ipu6-drivers/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.ko;*.mod;*.mod.c;*.cmd;*.order;*.symvers;*.bin;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="05 kernel fork - IPU6 ISYS + ipu-bridge"
+			Filters="">
+			<F
+				N="drivers/linux-xps9315-2in1/drivers/media/pci/intel/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.ko;*.mod;*.mod.c;*.cmd;*.order;*.symvers;*.bin;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="06 kernel fork - int3472 / TPS68470 PMIC"
+			Filters="">
+			<F
+				N="drivers/linux-xps9315-2in1/drivers/platform/x86/intel/int3472/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.ko;*.mod;*.mod.c;*.cmd;*.order;*.symvers;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="07 kernel fork - V4L2 core + media controller"
+			Filters="">
+			<F
+				N="drivers/linux-xps9315-2in1/drivers/media/v4l2-core/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.ko;*.mod;*.mod.c;*.cmd;*.order;*.symvers;"
+				D="1"/>
+			<F
+				N="drivers/linux-xps9315-2in1/drivers/media/mc/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.ko;*.mod;*.mod.c;*.cmd;*.order;*.symvers;"
+				D="1"/>
+			<F
+				N="drivers/linux-xps9315-2in1/drivers/media/common/videobuf2/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.ko;*.mod;*.mod.c;*.cmd;*.order;*.symvers;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="08 kernel fork - i2c sensor/VCM drivers (hi556 etc.)"
+			Filters="">
+			<F
+				N="drivers/linux-xps9315-2in1/drivers/media/i2c/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.ko;*.mod;*.mod.c;*.cmd;*.order;*.symvers;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="09 kernel fork - media headers"
+			Filters="">
+			<F
+				N="drivers/linux-xps9315-2in1/include/media/*"
+				Recurse="1"
+				Excludes=".git/;"
+				D="1"/>
+			<F N="drivers/linux-xps9315-2in1/include/uapi/linux/videodev2.h"/>
+			<F N="drivers/linux-xps9315-2in1/include/uapi/linux/v4l2-subdev.h"/>
+			<F N="drivers/linux-xps9315-2in1/include/uapi/linux/v4l2-mediabus.h"/>
+			<F N="drivers/linux-xps9315-2in1/include/uapi/linux/v4l2-controls.h"/>
+			<F N="drivers/linux-xps9315-2in1/include/uapi/linux/media-bus-format.h"/>
+			<F N="drivers/linux-xps9315-2in1/include/uapi/linux/media.h"/>
+		</Folder>
+		<Folder
+			Name="10 kernel fork - docs, changelog, packaging"
+			Filters="">
+			<F N="drivers/linux-xps9315-2in1/Changes.md"/>
+			<F N="drivers/linux-xps9315-2in1/Ubuntu.md"/>
+			<F
+				N="drivers/linux-xps9315-2in1/Documentation/userspace-api/media/*"
+				Recurse="1"
+				Excludes=".git/;*.png;*.svg;*.pdf;"
+				D="1"/>
+			<F
+				N="drivers/linux-xps9315-2in1/Documentation/driver-api/media/*"
+				Recurse="1"
+				Excludes=".git/;*.png;*.svg;*.pdf;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="11 libcamera fork - soft ISP, IPA, simple pipeline"
+			Filters="">
+			<F
+				N="../git-ubuntu/libcamera/src/*"
+				Recurse="1"
+				Excludes=".git/;build/;*.o;*.so;*.a;*.pyc;__pycache__/;"
+				D="1"/>
+			<F
+				N="../git-ubuntu/libcamera/include/*"
+				Recurse="1"
+				Excludes=".git/;build/;"
+				D="1"/>
+			<F N="../git-ubuntu/libcamera/README.rst"/>
+			<F N="../git-ubuntu/libcamera/meson.build"/>
+			<F N="../git-ubuntu/libcamera/meson_options.txt"/>
+			<F N="../git-ubuntu/libcamera/debian/changelog"/>
+			<F N="../git-ubuntu/libcamera/debian/control"/>
+			<F N="../git-ubuntu/libcamera/debian/rules"/>
+		</Folder>
+		<Folder
+			Name="12 Intel IPU6 HAL - source (reference)"
+			Filters="">
+			<F
+				N="../intel/ipu6-camera-hal/src/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.so;*.a;"
+				D="1"/>
+			<F
+				N="../intel/ipu6-camera-hal/include/*"
+				Recurse="1"
+				Excludes=".git/;"
+				D="1"/>
+			<F
+				N="../intel/ipu6-camera-hal/modules/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.so;*.a;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="13 Intel IPU6 HAL - GCSS graph XML (INTEL CONFIDENTIAL, do not redistribute)"
+			Filters="">
+			<F
+				N="../intel/ipu6-camera-hal/config/linux/ipu6ep/gcss/*.xml"
+				Recurse="0"
+				Excludes=""
+				D="1"/>
+			<F
+				N="../intel/ipu6-camera-hal/config/linux/ipu6/gcss/*.xml"
+				Recurse="0"
+				Excludes=""
+				D="1"/>
+			<F
+				N="../intel/ipu6-camera-hal/config/linux/ipu6epmtl/gcss/*.xml"
+				Recurse="0"
+				Excludes=""
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="14 Intel IPU6 camera-bins headers (PSYS program groups)"
+			Filters="">
+			<F
+				N="../intel/ipu6-camera-bins/include/*"
+				Recurse="1"
+				Excludes=".git/;*.a;*.so;*.bin;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="15 Intel icamerasrc (GStreamer, reference)"
+			Filters="">
+			<F
+				N="../intel/icamerasrc/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.so;*.a;*.lo;*.la;.deps/;.libs/;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="16 Intel ipu6-drivers upstream (fork base, reference)"
+			Filters="">
+			<F
+				N="../intel/ipu6-drivers/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.ko;*.mod;*.mod.c;*.cmd;*.order;*.symvers;*.bin;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="17 reference - ACPI dumps"
+			Filters="">
+			<F
+				N="reference/acpi-dumps/*"
+				Recurse="1"
+				Excludes=".git/;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="18 reference - Ghidra analysis of Windows drivers"
+			Filters="">
+			<F
+				N="reference/ghidra-analysis/*"
+				Recurse="1"
+				Excludes=".git/;__pycache__/;*.pyc;*.gzf;*.rep/;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="19 reference - live register captures, dmesg"
+			Filters="">
+			<F N="reference/dmesg-rear-stream-20260721.txt"/>
+			<F N="reference/linux-phy0-live.bin"/>
+			<F N="reference/linux-phy0-live-hi556.bin"/>
+			<F N="reference/csi2-port1-rear-live.bin"/>
+			<F N="reference/csi2-port3-hi556-live.bin"/>
+		</Folder>
+		<Folder
+			Name="20 reference - Windows-side property dumps"
+			Filters="">
+			<F
+				N="../xps9315-rear-win/*"
+				Recurse="1"
+				Excludes=".git/;"
+				D="1"/>
+		</Folder>
+		<Folder
+			Name="21 archived pre-fork drivers (history, not built)"
+			Filters="">
+			<F
+				N="archived-pre-fork-drivers/*"
+				Recurse="1"
+				Excludes=".git/;*.o;*.ko;*.mod;*.mod.c;*.cmd;*.order;*.symvers;"
+				D="1"/>
+		</Folder>
+	</Files>
+</Project>
