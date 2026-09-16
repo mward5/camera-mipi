@@ -96,14 +96,35 @@ python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
 # logs - so the kernel log showed the image node alone and said nothing about
 # why the second never arrived.
 IMG_LOG=$(mktemp); PAF_LOG=$(mktemp)
-echo "starting both nodes (the capture is expected to fail; the cfg is the point)"
-timeout 20 stdbuf -oL -eL yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" \
-	-n 4 -c10 "$IMG_NODE" > "$IMG_LOG" 2>&1 &
-IMG_PID=$!
-sleep 0.5
-timeout 20 python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
-	--height "$PAF_H" --count 10 --outdir "$PAFDIR" > "$PAF_LOG" 2>&1 &
-PAF_PID=$!
+
+# Start order decides the firmware pin order, and it is inverted:
+# ipu6-isys-queue.c:593 uses list_add(), which PREPENDS, while
+# ipu6-isys-video.c:542 builds the pins by walking that list. So the node that
+# starts LAST becomes input pin 0.
+#
+# That matters because the single-node control - the configuration that works -
+# describes the image stream as pin 0, and starting the image first pushes it
+# to pin 1. Everything else about the image pin is byte-identical between the
+# working and failing configs; its index is the only structural difference.
+# PDAF_FIRST=1 starts the sideband first, putting the image back at pin 0.
+PDAF_FIRST="${PDAF_FIRST:-0}"
+echo "starting both nodes, ${PDAF_FIRST:+PDAF_FIRST=$PDAF_FIRST }(capture expected to fail; the cfg is the point)"
+
+start_img() {
+	timeout 20 stdbuf -oL -eL yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" \
+		-n 4 -c10 "$IMG_NODE" > "$IMG_LOG" 2>&1 &
+	IMG_PID=$!
+}
+start_paf() {
+	timeout 20 python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
+		--height "$PAF_H" --count 10 --outdir "$PAFDIR" > "$PAF_LOG" 2>&1 &
+	PAF_PID=$!
+}
+if [ "$PDAF_FIRST" = 1 ]; then
+	start_paf; sleep 0.5; start_img
+else
+	start_img; sleep 0.5; start_paf
+fi
 wait $IMG_PID 2>/dev/null || true
 wait $PAF_PID 2>/dev/null || true
 
