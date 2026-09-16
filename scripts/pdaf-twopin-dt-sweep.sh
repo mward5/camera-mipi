@@ -30,11 +30,18 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMG_W=3976; IMG_H=2736; PAF_W=3968; PAF_H=684
-# "none" is a single-node arm with the sideband link DISABLED: the
-# configuration known to capture. Without it every row reading zero is
-# indistinguishable from a broken harness, which is how three measurements
-# went wrong earlier in this work. It runs first and last.
-DTS=(none 0x2b 0x12 0x30 0x2b none)
+# There is no single-node control available here, and the "none" arm this
+# script first used could never have passed. The forced pin installs its route
+# from init_state at probe, so while the hack is armed the route is active
+# whether or not the media link is enabled - nr_queues is permanently 2, a lone
+# streaming node leaves nr_streaming at 1, and ipu6-isys-queue.c:377 withholds
+# buffers forever. The WP0 notes say exactly this: an extra active route hangs
+# ordinary single-node capture silently.
+#
+# So validity is checked from the kernel log instead of from a capture. Each
+# arm must reach "queue 2 of 2" and "start stream: complete"; an arm that does
+# not never got as far as the firmware and says nothing about data types.
+DTS=(0x2b 0x12 0x30 0x2b)
 HACK=/sys/module/intel_ipu6_isys/parameters
 
 [ -e "$HACK/pdaf_hack_dt" ] || { echo "ERROR: forced-pin build not loaded" >&2; exit 1; }
@@ -76,17 +83,13 @@ mkdir -p "$PAFDIR"
 echo "media $MDEV  image $IMG_NODE  sideband $PAF_NODE"
 echo
 
-printf '| %-6s | %-14s | %-14s |\n' "arm" "image frames" "sideband frames"
-printf '| %-6s | %-14s | %-14s |\n' "---" "---" "---"
+printf '| %-6s | %-14s | %-14s | %-9s |\n' "dt" "image frames" "sideband frames" "fw started"
+printf '| %-6s | %-14s | %-14s | %-9s |\n' "---" "---" "---" "---"
 for dt in "${DTS[@]}"; do
 	twopin=1
-	if [ "$dt" = none ]; then
-		twopin=0
-		media-ctl -d "$MDEV" -l "\"$CSI2\":2 -> \"Intel IPU6 ISYS Capture 9\":0 [0]" 2>/dev/null
-	else
-		printf '%d' "$dt" | sudo tee "$HACK/pdaf_hack_dt" >/dev/null
-		media-ctl -d "$MDEV" -l "\"$CSI2\":2 -> \"Intel IPU6 ISYS Capture 9\":0 [1]" 2>/dev/null
-	fi
+	printf '%d' "$dt" | sudo tee "$HACK/pdaf_hack_dt" >/dev/null
+	media-ctl -d "$MDEV" -l "\"$CSI2\":2 -> \"Intel IPU6 ISYS Capture 9\":0 [1]" 2>/dev/null
+	MARK="dtsweep-$dt-$$"; echo "$MARK" | sudo tee /dev/kmsg >/dev/null
 	for e in "\"s5k3j1 1-0010\":0" "\"$CSI2\":0" "\"$CSI2\":1"; do
 		media-ctl -d "$MDEV" -V "$e [fmt:SGRBG10_1X10/${IMG_W}x${IMG_H}]" >/dev/null 2>&1 || true
 	done
@@ -109,16 +112,22 @@ for dt in "${DTS[@]}"; do
 	# grep -c prints 0 AND returns non-zero when it matches nothing, so a
 	# "|| echo 0" fallback appends a second line. Swallow the status instead.
 	paff=$(grep -c '^frame ' "$pl" 2>/dev/null || true)
-	[ "$twopin" = 1 ] || paff="-"
-	printf '| %-6s | %-14s | %-14s |\n' "$dt" "${imgf:-0}" "${paff:-0}"
+	klog=$(sudo dmesg | sed -n "/$MARK/,\$p")
+	reached=$(echo "$klog" | grep -c 'queue 2 of 2' || true)
+	started=$(echo "$klog" | grep -c 'start stream: complete' || true)
+	valid="no"
+	[ "${reached:-0}" -gt 0 ] && [ "${started:-0}" -gt 0 ] && valid="yes"
+	printf '| %-6s | %-14s | %-14s | %-9s |\n' \
+		"$dt" "${imgf:-0}" "${paff:-0}" "$valid"
 	rm -f "$il" "$pl"
 	media-ctl -d "$MDEV" -l "\"$CSI2\":2 -> \"Intel IPU6 ISYS Capture 9\":0 [0]" 2>/dev/null
 	sleep 1
 done
 echo
-echo "READ THE 'none' ARMS FIRST. They are single-node captures with the"
-echo "sideband link disabled - the configuration known to work. If they read 0,"
-echo "this harness is broken and every other row is meaningless."
+echo "READ 'fw started' FIRST. It means that arm reached 'queue 2 of 2' and"
+echo "'start stream: complete' - both nodes streaming and the firmware having"
+echo "accepted and started the config. An arm that says no never got to the"
+echo "firmware and tells you nothing about data types."
 echo
 echo "The 0x2b arms are the control: that data type certainly arrives. If the"
 echo "image node captures there and not at 0x30, the two-pin mechanism works"
