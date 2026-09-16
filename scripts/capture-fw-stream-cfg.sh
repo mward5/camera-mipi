@@ -19,10 +19,24 @@ set -euo pipefail
 OUT="${1:-$HOME/work/af-sweep-data/fw-stream-cfg-$(date +%Y%m%d-%H%M%S).txt}"
 IMG_W=3976
 IMG_H=2736
-DD=/sys/kernel/debug/dynamic_debug/control
+# Prefer the procfs control file. The debugfs one is blocked outright while
+# Secure Boot is on: LOCKDOWN_DEBUGFS sits before LOCKDOWN_INTEGRITY_MAX, so
+# fs/debugfs/file.c refuses the write with EPERM even as root - the same
+# lockdown that kills the BAR-dumping scripts, via a different reason code.
+# lib/dynamic_debug.c registers an identical control file under /proc and has
+# no lockdown check at all, so that one works.
+DD=/proc/dynamic_debug/control
+[ -w "$DD" ] || [ -e "$DD" ] || DD=/sys/kernel/debug/dynamic_debug/control
 
 sudo -v
-sudo test -w "$DD" || { echo "ERROR: $DD not writable - is debugfs mounted?" >&2; exit 1; }
+sudo test -e "$DD" || { echo "ERROR: no dynamic_debug control file at $DD" >&2; exit 1; }
+if ! echo 'func ipu6_fw_isys_dump_stream_cfg -p' | sudo tee "$DD" >/dev/null 2>&1; then
+	echo "ERROR: cannot write $DD." >&2
+	echo "       If this is the debugfs path, Secure Boot's lockdown blocks it;" >&2
+	echo "       /proc/dynamic_debug/control should work instead." >&2
+	exit 1
+fi
+echo "dynamic debug control: $DD"
 
 PW_UNITS=(pipewire.socket pipewire-pulse.socket pipewire.service
 	  pipewire-pulse.service wireplumber.service)
