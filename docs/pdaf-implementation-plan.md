@@ -1244,5 +1244,20 @@ The decisive measurement is receiver-side and does not need a capture path:
 for every VC from `CSI_PORT_REG_BASE_IRQ_CSI_SYNC`, and silently drops the ones with no
 registered stream. Counting them per VC and reporting on stream-off says whether a second
 virtual channel is arriving, regardless of whether anything can capture it.
-`scripts/dump-csi2-port.py` plus `reference/csi2-port1-rear-live.bin` is the no-rebuild
-alternative: diff the port register block between arms while streaming.
+**The no-rebuild alternative is gone.** `scripts/dump-csi2-port.py` and every other
+BAR-reading tool here (`dump-phy0-live.py`, `dump-phy0-live-hi556.py`, `dump-buttress.py`)
+mmap `/sys/bus/pci/devices/0000:00:05.0/resource0`, and `pci_mmap_resource()` calls
+`security_locked_down(LOCKDOWN_PCI_ACCESS)` before any other check. This kernel runs in
+**integrity lockdown** because Secure Boot is enabled, so that returns `-EPERM` — as root,
+with the region non-exclusively claimed and `CONFIG_IO_STRICT_DEVMEM` off. None of those
+checks are reached.
+
+`reference/csi2-port1-rear-live.bin` is dated 2026-07-20, inside the window when Secure Boot
+had been silently disabled by the Dell BIOS flash (see the machine's Secure Boot history).
+Those tools only ever worked because the machine was accidentally unlocked, and they cannot
+work while it is secured. Reading `/sys/kernel/security/lockdown` shows the current mode.
+
+So the receiver-side measurement has to come from inside the kernel, which is the ISYS
+per-VC counter above. That needs an `intel-ipu6-isys` rebuild, install and reboot — unlike
+`s5k3j1`, that module is in the initrd. The alternative is turning Secure Boot off in the
+BIOS, which is a deliberate downgrade of the machine and was re-enabled on purpose.
