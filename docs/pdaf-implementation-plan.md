@@ -1468,3 +1468,73 @@ That is the first direct evidence about emission in this entire effort, and it i
 It is one experiment with one known confound, so it should be confirmed by the raw-MIPI
 variant above before WP1 is cancelled on the strength of it — WP1 is a subset backport of an
 86-patch series plus a full kernel build, and that decision deserves the second measurement.
+
+### Confirmed through a raw MIPI pin — the confound is closed
+
+The 10-bit result above rested on a `PIN_TYPE_RAW_SOC` pin, leaving open that 0x30 might be
+present but unconsumable by the conversion path. Repeated with `image_code_8bit`, which
+advertises the image stream as 8-bit Bayer all the way down and so yields `PIN_TYPE_MIPI` with
+`MIPI_STORE_MODE_DISCARD_LONG_HEADER` — a raw packet store
+(`scripts/pdaf-image-dt-sweep8.sh`):
+
+| 8-bit | declared dt | frames | bytes/frame |
+| --- | --- | --- | --- |
+| no | `-1` | **5** | 21,888,000 |
+| yes | `-1` | **5** | 11,031,552 |
+| yes | `0x30` | **0** | — |
+| yes | `0x3f` | **0** | — |
+| yes | `0x30` | **0** | — |
+| yes | `-1` | **5** | 11,031,552 |
+
+**The 8-bit control captures, twice.** 11,031,552 = 4032-byte stride x 2736 lines, and the
+change from 21,888,000 independently confirms the format applied down the whole chain. So the
+raw packet-store pin works, and 0x30 still yields nothing, indistinguishable from a type
+nothing sends.
+
+Two pin types, two working positive controls, both reproduced. **The s5k3j1 does not emit its
+PAF stream.**
+
+## WP0: answered, negative — 2026-09-16
+
+After two days, the question WP0 exists to answer has an answer.
+
+**The sensor does not emit phase-detect data.** Not in the stock mode table, and not in the
+Windows PDAF mode table it now runs faithfully, register for register, verified by read-back
+while streaming. Its vendor driver declares a `3968x684` PAF stream on data type 0x30 in two
+independent descriptors and a third time in the graph-settings XML, and the silicon does not
+send it.
+
+What supports that:
+
+- 0x30 captures nothing through a `RAW_SOC` pin and nothing through a raw `MIPI` pin, each
+  with a positive control that captures, each reproduced.
+- No second virtual channel ever arrives (receiver-side per-VC counters, both mode tables).
+- No embedded PD anywhere in the image: not at one row in four, not at column residues 2, 4,
+  8 or 16, not in the 24 trailing samples per line.
+- The complete Windows PDAF mode table produces no observable change beyond a 0.85% line time.
+- Every PDAF register from the I2C trace is inert, individually and together.
+
+What would still overturn it: an enable step outside the sensor's register interface
+altogether. But `PDAF_Type` gates exactly two things in the vendor driver — the mode table and
+two descriptor *getters* — and neither writes a register. There is no further enable in that
+binary.
+
+### Consequences
+
+**WP1 and WP2 should be cancelled.** They exist to carry a stream that is not transmitted.
+WP1 is a subset backport of an unmerged 86-patch series plus a full kernel build; WP2 is the
+sensor patch that would declare the stream upstream. Neither has a purpose now.
+
+**WP5 remains, and is the work that improves this camera.** The soft ISP has no noise
+reduction of any kind, which is the noise the user actually sees.
+
+**Two findings outlive PDAF and should not be lost:**
+
+- Two input pins on one virtual channel hang this IPU6 firmware. The configuration is accepted
+  and well-formed, `start stream: open complete` and `start stream: complete` are both logged,
+  and then nothing is delivered and stop and close both time out. Both pin orders. This is an
+  IPU6 property, independent of this sensor, and it would bite any multi-stream work on this
+  hardware.
+- This sensor's CCS register file is largely a facade: PLL, binning and line length are stored
+  faithfully and ignored. Only `0x0340` proved live. Register-replay from a Windows I2C trace
+  cannot configure it.
