@@ -1312,3 +1312,80 @@ The remaining cheap lead is static: `PDAF_Type` is read at `.text` RVA `0x9518` 
 value gates is a question about a binary already in the repo, with no hardware risk and no
 reboots. If that yields nothing, WP5 denoise remains the change that actually improves the
 camera, and PDAF should be recorded as not reachable on this sensor by any means found here.
+
+## What PDAF_Type actually gates — 2026-09-16, and it changes the assessment
+
+Followed `PDAF_Type` past mode-table selection, in `s5k3j1sx04.sys` via pyghidra.
+`FUN_140009250` reads it with `FUN_14000d9d0(..., 0x14001c1c0, ...)`, default 2, into
+`ctx+0x1e9c` — so the mode-table selector **is** `PDAF_Type`, proven rather than inferred
+(0 -> `DAT_14002b7d0`, 2 -> `DAT_14002ae80`, 3 -> `DAT_14002b350`, matching tables `0x25410`,
+`0x21630`, `0x23260`).
+
+It gates one more thing:
+
+```c
+if (*(int *)(param_1 + 0x1e9c) == 2) {
+    *(code **)(param_1 + 0x17f0) = FUN_140009fe0;
+    *(code **)(param_1 + 0x16f0) = FUN_14000a180;
+} else {
+    *(undefined8 *)(param_1 + 0x17f0) = 0;
+    *(undefined8 *)(param_1 + 0x16f0) = 0;
+    FUN_14000596c(param_1);
+}
+```
+
+Two callbacks, null unless PDAF_Type == 2. Neither writes a register: `FUN_14000a180` hands
+back `&DAT_14002afb0`, and `FUN_140009fe0` copies fields out of `DAT_14002afc0`. **They are
+descriptor getters.**
+
+### The descriptors
+
+`DAT_14002afc0`, with the fields `FUN_140009fe0` copies marked:
+
+| offset | value | meaning |
+| --- | --- | --- |
+| +0x0c | `0x0f88` `0x0ab0` | 3976 x 2736 — the image |
+| +0x14 | `0x0f80` `0x02ac` | **3968 x 684 — the PAF stream** |
+| +0x1c | 30 | fps |
+| +0x24 | `0x30` | **data type 0x30** |
+
+`DAT_14002afb0` is `{count = 1, ptr -> 0x14002afa0}` and that entry is `{3968, 684, 30}`.
+`graph_settings_s5k3j1sx04_*.xml` independently says `PAFi enabled="1" width="3968"
+height="684"`. Three sources in the vendor package agree.
+
+**So DT 0x30 is no longer a guess from a single I2C write** (`0x0116 = 0x3000`). It is what the
+vendor driver declares its PAF stream to be.
+
+### What this means for the sensor side: it is complete
+
+The driver's entire PDAF-specific behaviour is to select mode table `0x21630` and publish
+those descriptors so the OS configures its receiver for DT 0x30. There is no enable sequence
+beyond the mode table. **Our ported table is therefore the whole sensor-side configuration —
+nothing is missing.** That closes the question this project has been circling since July.
+
+### The timing evidence is inconclusive, not negative
+
+Worth stating because it is tempting to read the other way. At 30.16 fps over 4 lanes at
+1024 Mbps the wire carries 135.8 Mbit per frame; the image uses 108.8 Mbit, leaving
+**27.0 Mbit spare**. A 3968x684 PAF stream needs 21.7 Mbit at 8bpp — it fits inside existing
+blanking, so emitting it need not move the frame period at all. The measured +0.8498% line
+time neither supports nor refutes its presence.
+
+(At 10bpp PAF would need 27.1 Mbit and would *not* fit, which is a consistency check that the
+PAF stream is 8-bit — matching `MEDIA_BUS_FMT_META_8` and Intel's `IA_CSS_DATA_FORMAT_PAF_*`.)
+
+### Where the blocker actually is
+
+Entirely receiver-side, and now specific: **accept DT 0x30 on VC0, alongside the image DT, on
+one virtual channel.** That is consistent with every measurement — no second VC (measured), no
+change to the image frame (measured), no embedded PD (measured).
+
+It is also exactly what WP0's forced second input pin failed to do, through twelve rounds,
+starving the whole stream regardless of which data type the pin was labelled with. That
+failure was receiver-side and remains unexplained. The proper mechanism is WP1 and WP2 — the
+streams API and internal pads — which is what upstream is building anyway.
+
+**Revised recommendation.** PDAF on this sensor is not unreachable, and the earlier note in
+this document suggesting it might be should be read in light of this section. The sensor side
+is done and proven. What remains is a single, well-defined receiver-side problem, gated on the
+unmerged metadata series rather than on any missing knowledge about the sensor.
