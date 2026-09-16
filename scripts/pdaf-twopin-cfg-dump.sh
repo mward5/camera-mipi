@@ -20,6 +20,7 @@
 set -euo pipefail
 
 OUT="${1:-$HOME/work/af-sweep-data/fw-cfg-twopin-$(date +%Y%m%d-%H%M%S).txt}"
+PAFDIR="$HOME/work/af-sweep-data/twopin-paf-$(date +%Y%m%d-%H%M%S)"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IMG_W=3976; IMG_H=2736
 PAF_W=3968; PAF_H=684
@@ -96,12 +97,12 @@ python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
 # why the second never arrived.
 IMG_LOG=$(mktemp); PAF_LOG=$(mktemp)
 echo "starting both nodes (the capture is expected to fail; the cfg is the point)"
-timeout 20 yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" -n 4 -c10 "$IMG_NODE" \
-	> "$IMG_LOG" 2>&1 &
+timeout 20 stdbuf -oL -eL yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" \
+	-n 4 -c10 "$IMG_NODE" > "$IMG_LOG" 2>&1 &
 IMG_PID=$!
 sleep 0.5
 timeout 20 python3 -u "$HERE/pdaf-meta-capture.py" "$PAF_NODE" --width "$PAF_W" \
-	--height "$PAF_H" --count 10 > "$PAF_LOG" 2>&1 &
+	--height "$PAF_H" --count 10 --outdir "$PAFDIR" > "$PAF_LOG" 2>&1 &
 PAF_PID=$!
 wait $IMG_PID 2>/dev/null || true
 wait $PAF_PID 2>/dev/null || true
