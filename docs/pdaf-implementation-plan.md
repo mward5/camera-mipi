@@ -278,8 +278,32 @@ gated (`int346d_i2c_quirk_dmi_ids` pattern in `ipu-bridge.c`); kernel-targeted r
 builds go to a sibling `<pkg>-<version>_output/` dir; big captures go under
 `~/work/af-sweep-data/`, never `/tmp` (7.5 GB tmpfs); restart pipewire/wireplumber in the same
 command that stops them; `media-ctl` does not print ancillary links; verify a dev build's
-reported git hash before trusting it; module changes need install to `/lib/modules/$(uname
--r)/updates/` + reboot, not insmod/rmmod (see `STATUS.md`, `scripts/install-custom-modules.sh`).
+reported git hash before trusting it; module changes need install + reboot, not insmod/rmmod.
+
+**Installing a module change (corrected 2026-09-16 — this section previously named the wrong
+script).** The path in use is `bash scripts/install-dkms.sh`, not
+`scripts/install-custom-modules.sh`. Three things bite, all of them observed:
+
+- **DKMS will not rebuild for an unchanged `PACKAGE_VERSION`.** `install-dkms.sh` runs
+  `dkms install --force`, which forces the *install* step, not a recompile, so an already
+  `installed` version/kernel pair reinstalls the previous binary and the source change
+  silently does not ship. Run `sudo dkms remove -m xps9315-2in1-camera -v 1.0 -k $(uname -r)`
+  first, or bump `PACKAGE_VERSION` in `dkms.conf`.
+- **Always verify `srcversion` after installing**, before drawing any conclusion from a run:
+  `cat /sys/module/s5k3j1/srcversion` against `modinfo <built .ko> | grep srcversion`. A
+  session on 2026-09-16 tested a stale module for several rounds without noticing.
+- **DKMS builds from `/usr/src/xps9315-2in1-camera-1.0`, a symlink to the main checkout** —
+  not from a git worktree. Work done in a worktree's own submodule clone has to reach the
+  main checkout's submodule working tree first, and only one session can hold that at a time.
+
+Secure Boot is on with `sig_enforce=Y`. DKMS signs automatically with the enrolled shim MOK
+(`/var/lib/shim-signed/mok/`); a hand-built `.ko` does not, and must be signed with
+`scripts/sign-file` against that key before it will load.
+
+`scripts/install-custom-modules.sh` still exists and does the same builds without DKMS, but
+it does **not** sign, and it installs to `updates/` where DKMS's own `updates/dkms/` copy of
+the same module already lives — `/etc/depmod.d` has a single `search updates` entry, so which
+one wins is resolution-order dependent. Prefer the DKMS path.
 
 ## WP0 — throwaway proof of PAF emission and offline phase (Phase 0, not for upstream)
 
@@ -297,7 +321,7 @@ is submitted anywhere; it is deleted once WP2 replaces it. Deliverable even if w
    experiment. Alternative if the route lookup is awkward: flip `v4l2_subdev_enable_streams_api`
    to `true` and give the CSI2 a second active route via `media-ctl -R`; the sensor still has
    no routing so the frame-desc lookup would fail — hence the forced-vc/dt param is needed
-   anyway. Build/install per `scripts/install-custom-modules.sh` (isys module only) + reboot.
+   anyway. Build/install per the install note under "Strategy" above + reboot.
 2. **Sensor-side hack** (`s5k3j1.c`, same-named branch in the ipu6-drivers fork): extend the
    existing `pdaf_trial` param with a value that writes `0x0B80=0x0100`, `0x0116=0x3000`
    (after the mode table, before stream-on), and optionally `0x0900=0x0011` as 8-bit writes;
@@ -1022,3 +1046,111 @@ patch changes the default and nothing else. `modinfo` confirms the collapsed par
 
 Eight independent measurements at frame length 2856 all read 30.161–30.162 fps; four at 3420
 all read 25.187–25.188. Script kept at `scratchpad/vblank-verify-root.sh` from that session.
+## WP0 resolved on the sensor side — 2026-09-16, the wrong mode table
+
+**The negative above is explained: this driver clones the non-PDAF mode table.** The answer was
+in `reference/windows-driver-artifacts/win-collected/s5k3j1sx04.sys` the whole time, and needed
+no Ghidra — the tables are plain 16-byte `{u32 width, u32 addr, u32 value, u32 pad}` records in
+`.rdata`, readable with a PE parse.
+
+### There are exactly three tables
+
+Laid out back to back, each terminated by a 16-byte record with an invalid width:
+
+| RVA | entries | what it is |
+| --- | --- | --- |
+| `0x21630` | 450 | **the PDAF mode** |
+| `0x23260` | 538 | the same config uploaded indirectly via `0x602A`/`0x6F12` (377 data writes) |
+| `0x25410` | 585 | the non-PDAF mode |
+
+A scan of the whole of `.rdata` finds no fourth table, so there is no separate "PDAF enable"
+register list hiding anywhere in this binary. That question is closed.
+
+### Our table is 0x25410, byte-exact
+
+`mode_3976x2736_regs[]` is table `0x25410` entries 7..583. Intel split the first six into
+`mipi_data_rate_1024mbps[]`, skipped entry 6 — a width-32 record, address 0 value 3, apparently
+a delay — and dropped the trailing `0x0100=0x0100` stream-on, which `s5k3j1_start_streaming()`
+issues itself. Verified by comparison, not assumed.
+
+This also answers the open question in
+`docs/windows-agent-findings-i2c-mode-regs-2026-07-17.md` about why the 406-byte `0x90C8..0x9248`
+microcode run "appears nowhere in the `.sys` static image": it is there, stored as 193
+per-register 16-bit writes at consecutive addresses, which a search for a contiguous byte
+sequence cannot see. All three tables carry it identically and our driver already matches it.
+
+### The live trace matches 0x21630, not ours
+
+`PDAF_Type = dword:00000002` is set in the registry on this machine (`s5k3j1sx04.reg`, and the
+DriverStore copy), the `"PDAF_Type"` string at RVA `0x1c1c0` is read at `.text` RVA `0x9518`
+inside `FUN_140009250` — the same init function that resolves the mode-table root — and that
+function's variant selector takes the values 0/2/3 mapped in
+`docs/ghidra-findings-s5k3j1-mode-table-pointer.md`.
+
+That inference is not load-bearing. The I2C capture settles it independently, matching `0x21630`
+and contradicting `0x25410` on every register that distinguishes them:
+
+| reg | trace | `0x21630` | `0x25410` / Linux |
+| --- | --- | --- | --- |
+| `0x0114` | 0x0301 | 0x0301 | 0x0300 |
+| `0x0300` | 0x0005 | 5 | 7 |
+| `0x0302` | 0x0001 | 1 | **absent** |
+| `0x0306` | 0x00D2 | 0xD2 | 0x95 |
+| `0x030C` | — | 1 | 0 |
+| `0x0310` | 0x0140 | 0x140 | 0x109 |
+| `0x0340` | 0x0B1E | 0x0B1E | 0x0B28 |
+| `0x0342` | 0x24E0 | 0x24E0 | 0x2510 |
+| `0x0900` | 0x0011 | 0x0011 | 0x0221 |
+
+And the registers §4 chased one at a time — `0x0110`, `0x0B80=0x0100`, `0x0B88..0x0B8E`, the
+second `0x0116=0x3000` — are exactly the addresses present in `0x21630` and absent from
+`0x25410`, sitting in its last 14 entries before the stream-on. **PDAF is not a toggle on the
+stock mode. It is a different mode**, with a different PLL, a `VT_SYS_CLK_DIV` write the stock
+mode never makes, different line and frame lengths and different binning. Bolting four
+registers onto the wrong table could not have worked, and "sensor-side guessing is exhausted"
+above should be read as "stop guessing", not "the sensor side is closed".
+
+### Link rate: probably already correct, and a separate open question
+
+Both variants' output PLL computes cleanly by one expression, with `EXTCLK` (`0x0136` = 0x1333)
+= 19.2 MHz:
+
+```
+extclk / PRE_PLL_CLK_DIV(0x0304 = 2) x PLL_MULTIPLIER2(0x0310) / 0x030E(= 3)
+```
+
+giving **848** for `0x25410` (`0x0310` = 265) and **1024** for `0x21630` (`0x0310` = 320). Two
+round integers from the same expression is good evidence the formula is right; the unit is the
+open part. Read as Mbps/lane, `0x21630` = 1024 Mbps/lane = **512 MHz, exactly what
+`S5K3J1_LINK_FREQ_512MHZ` already declares**, and exactly the name of Intel's
+`mipi_data_rate_1024mbps[]`. On that reading the port needs **no** link-frequency change and the
+D-PHY timing from the corruption work carries over unchanged, and Intel shipped the non-PDAF
+table beside the PDAF mode's rate constants.
+
+Note what this does *not* rest on: commit `5c3e9cc` (2026-07-15) set 512 MHz from the driver's
+own `PPL x VTS` consistency, not from these registers — nobody had them, and the 2026-07-20
+PLL-divider session tried and failed because the LPSS ETW provider logs transfer descriptors,
+not payload bytes.
+
+The corollary is a live hypothesis about the **current** driver: it may be declaring about 21%
+above what its own table produces (1024 vs 848), which is a candidate cause of the residual
+`Inter-frame long packet discarded` and the occasional severe error set. Intel's original 848
+*MHz* (1696 Mbps/lane, twice the figure above) was falsified live; **424 MHz (848 Mbps/lane) has
+never been tried.** Testing it needs many repetitions with same-session controls — §5 established
+those counters are run-to-run noise, and this is exactly the trap they describe.
+
+### Status
+
+Ported as `mode_3976x2736_pdaf_regs[]` on branch `s5k3j1-pdaf-win-mode-table` in the
+ipu6-drivers fork (commit `bd99119`, rebased onto the tall-vblank removal `6f14227`): table
+`0x21630` entries 6..448 under Intel's own recipe,
+machine-generated and round-trip verified against the binary, behind module param
+`pdaf_win_mode` (default 0, `0644`, read at set_format — so it A/B/As from sysfs without a
+reload). Compiles clean. **Untested against hardware.**
+
+The first question when it is run is not whether PD data appears but whether the camera streams
+at all: the mode changes PLL, lane mode and timings, so "no frames" would mean the mode does not
+come up on this receiver, not that the sensor emits nothing. Those are different answers. Nothing
+on this branch can capture a sideband — the phase-0 ISYS hack is on another branch — so the
+trustworthy signal on the image node is a changed frame geometry or byte count, not the CSI-2
+error counters.
