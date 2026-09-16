@@ -62,7 +62,8 @@ cleanup() {
 			wireplumber.service >/dev/null 2>&1
 	fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'cleanup; exit 130' INT TERM
 
 echo "masking pipewire/wireplumber to release the camera"
 RESTORE_SERVICES=1
@@ -99,9 +100,11 @@ echo
 DMESG="dmesg"
 $DMESG >/dev/null 2>&1 || DMESG="sudo dmesg"
 
+REP=0
 run_arm() {
 	local mode="$1" label="$2"
 	local log; log=$(mktemp)
+	REP=$((REP+1))
 
 	echo "$mode" | sudo tee /sys/module/s5k3j1/parameters/pdaf_win_mode >/dev/null
 
@@ -117,9 +120,14 @@ run_arm() {
 	yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" -n 4 -c"$FRAMES" \
 		"$IMG_NODE" > "$log" 2>&1 || true
 
+	# 0x0900 differs between the two tables, so the content can change while
+	# the frame size does not. Grab one frame per arm to compare.
+	yavta --no-query -f SGRBG10 -s "${IMG_W}x${IMG_H}" -n 4 -c1 \
+		--file="$OUTDIR/${label}-${REP}-#.raw" "$IMG_NODE" >/dev/null 2>&1 || true
+
 	local captured fps bytes vts errs
 	captured=$(grep -c '^[0-9]* ([0-9]*)' "$log" || true)
-	fps=$(sed -n 's/.*(\([0-9.]*\) fps).*/\1/p' "$log" | tail -1)
+	fps=$(sed -n 's/.*(\([0-9.]*\) fps.*/\1/p' "$log" | tail -1)
 	bytes=$(sed -n 's/^[0-9]* ([0-9]*) \[[^]]*\] [^ ]* [0-9]* \([0-9]*\) B.*/\1/p' "$log" | tail -1)
 	vts=$(v4l2-ctl -d "$(media-ctl -d "$MDEV" -e 's5k3j1 1-0010')" \
 		--get-ctrl vertical_blanking 2>/dev/null | sed 's/.*: //')
@@ -131,6 +139,11 @@ run_arm() {
 		| sed 's/.*csi2-1 error/    csi2-1 error/' | sort | uniq -c | sed 's/^/  /'
 	rm -f "$log"
 }
+
+OUTDIR="$HOME/work/af-sweep-data/pdaf-modetable-ab-$(date +%Y%m%d-%H%M%S)"
+mkdir -p "$OUTDIR"
+echo "frames for content comparison: $OUTDIR"
+echo
 
 printf '| %-14s | %7s | %9s | %12s | %8s | %6s |\n' \
 	"arm" "frames" "fps" "bytes/frame" "vblank" "errs"
@@ -144,3 +157,6 @@ echo
 echo "Expected if nothing changed: 3976x2736 x 10bpp packed = 21888000 bytes/frame."
 echo "A different byte count or frame geometry is the trustworthy signal here."
 echo "Error counts vary run to run with nothing changed - compare arms, not runs."
+echo
+echo "=== frame content (SGRBG10 packed, per-arm single frame) ==="
+python3 "$(dirname "$0")/pdaf-compare-frames.py" "$OUTDIR"
