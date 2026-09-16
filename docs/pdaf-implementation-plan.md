@@ -278,7 +278,7 @@ gated (`int346d_i2c_quirk_dmi_ids` pattern in `ipu-bridge.c`); kernel-targeted r
 builds go to a sibling `<pkg>-<version>_output/` dir; big captures go under
 `~/work/af-sweep-data/`, never `/tmp` (7.5 GB tmpfs); restart pipewire/wireplumber in the same
 command that stops them; `media-ctl` does not print ancillary links; verify a dev build's
-reported git hash before trusting it; module changes need install + reboot, not insmod/rmmod.
+reported git hash before trusting it.
 
 **Installing a module change (corrected 2026-09-16 — this section previously named the wrong
 script).** The path in use is `bash scripts/install-dkms.sh`, not
@@ -299,6 +299,18 @@ script).** The path in use is `bash scripts/install-dkms.sh`, not
 Secure Boot is on with `sig_enforce=Y`. DKMS signs automatically with the enrolled shim MOK
 (`/var/lib/shim-signed/mok/`); a hand-built `.ko` does not, and must be signed with
 `scripts/sign-file` against that key before it will load.
+
+**Reboot is not always required — it depends which module.** `ipu-bridge`,
+`intel_skl_int3472_tps68470` and `intel-ipu6-isys` bind ACPI/fwnode state early and have to be
+in the initrd, so changing those means install + `update-initramfs` + reboot; that is what the
+long-standing "not insmod/rmmod" rule in this project refers to, and its specific cause is
+`ipu_bridge_init()`'s "already configured, skip" early exit. **`s5k3j1` is not in that
+category.** It is i2c-instantiated and re-probes on load, and the tall-vblank session below
+measured both arms by `rmmod`/`insmod`ing a signed module with no reboot at all. Two cautions
+if you do that: `rmmod s5k3j1` with a CameraManager fd open oopses the kernel, so stop the
+consumers first (`systemctl --user stop pipewire.socket pipewire wireplumber` — socket first,
+or it reactivates the service and the stop is cancelled); and `insmod` the file directly, since
+`modprobe` will pull the installed DKMS copy instead.
 
 `scripts/install-custom-modules.sh` still exists and does the same builds without DKMS, but
 it does **not** sign, and it installs to `updates/` where DKMS's own `updates/dkms/` copy of
