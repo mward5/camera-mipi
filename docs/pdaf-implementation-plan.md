@@ -1419,3 +1419,52 @@ Note also that this fix **cannot be verified on hardware**. `ipu6_isys_csi2_get_
 selects the entry whose `.stream` matches the route's sink stream, so with the streams API
 compiled off and a single route, only entry 0 is ever consulted and the corrected lines are
 unreachable. What was verified is that the module builds, loads and streams with them in.
+
+## Is DT 0x30 on the wire? Asked with one input pin — 2026-09-16
+
+Every previous look configured a **second** input pin beside the image, and two input pins on
+one virtual channel hang this firmware: it accepts the configuration, logs `start stream: open
+complete` and `start stream: complete`, delivers nothing, then times out on both stop and
+close. Both pin orders, every data type tried. So every look had been blind.
+
+`s5k3j1`'s `image_dt_override` changes the data type the sensor *declares* for the image
+stream. `ipu6_isys_setup_video()` copies that into the firmware's single existing input pin,
+so the receiver can be pointed at a different type without a second pin existing at all
+(`scripts/pdaf-image-dt-sweep.sh`).
+
+| declared dt | frames | note |
+| --- | --- | --- |
+| `-1` (RAW10 0x2b) | **5** | positive control |
+| `0x30` | **0** | the PAF stream's type |
+| `0x3f` | **0** | negative control, nothing sends this |
+| `-1` | **5** | control repeated |
+| `0x30` | **0** | repeated |
+
+**`0x30` is indistinguishable from a data type nothing sends, while the control captures.**
+The parameter demonstrably took effect — the only change between 5 frames and 0 was that
+sysfs write.
+
+### The residual confound, stated
+
+The pin was configured 10bpp at 3976x2736, and because `bpp != bpp_packed` for SGRBG10 the
+driver sets `pt = IPU6_FW_ISYS_PIN_TYPE_RAW_SOC` — the SoC conversion path, which expects
+RAW10 pixel data. If PAF packets (8bpp, 3968x684) did arrive, that path might fail to complete
+a frame anyway. A null result is therefore consistent with "not emitted" and, less likely, with
+"emitted but the pin could not consume it".
+
+Closing that needs the pin to be a raw MIPI store instead: the node enumerates `GRBG`
+(`V4L2_PIX_FMT_SGRBG8`), which has `bpp == bpp_packed == 8` and so yields
+`PIN_TYPE_MIPI` with `MIPI_STORE_MODE_DISCARD_LONG_HEADER`. Link validation compares the CSI2
+source pad against the video node, and the sensor advertises only `SGRBG10_1X10`, so this also
+needs `s5k3j1` to advertise an 8-bit mbus code behind the same debug parameter.
+
+### Reading
+
+On the evidence as it stands, the sensor does not emit its PAF stream in either mode table —
+including the Windows PDAF table it now runs faithfully. The vendor descriptors declare the
+stream and the sensor does not send it.
+
+That is the first direct evidence about emission in this entire effort, and it is negative.
+It is one experiment with one known confound, so it should be confirmed by the raw-MIPI
+variant above before WP1 is cancelled on the strength of it — WP1 is a subset backport of an
+86-patch series plus a full kernel build, and that decision deserves the second measurement.
