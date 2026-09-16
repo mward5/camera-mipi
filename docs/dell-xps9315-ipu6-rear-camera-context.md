@@ -282,7 +282,7 @@ Save: **right-click key → Export** for any branch that clearly belongs to **re
 |-------|------|--------|
 | **ipu-bridge** INT346D quirk + `physical_node` | `~/work/ubuntu-src/ipu-bridge-test/` | **Working** |
 | **TPS68470 board data** | `~/work/ubuntu-src/int3472-tps68470-test/` | **Working** — Surface GO GPIO **9/7** (not Dell 7212 3/4) |
-| **s5k3j1** out-of-tree | `~/work/ubuntu-src/ipu6-drivers-…/s5k3j1.c` | **Dual-stream PAFi:** `get_frame_desc` stream0 RAW10 VC0 + stream1 META8 VC1; INT346D tall vblank; **libcamera** simple pipeline opens Capture 9 sideband |
+| **s5k3j1** out-of-tree | `~/work/ubuntu-src/ipu6-drivers-…/s5k3j1.c` | **Dual-stream PAFi:** `get_frame_desc` stream0 RAW10 VC0 + stream1 META8 VC1; **libcamera** simple pipeline opens Capture 9 sideband |
 | **Front libcamera** | `cam` + **`\_SB_.PC00.LNK2`** | **Working** |
 | **Rear libcamera** | `cam` + **`\_SB_.PC00.LNK0`** | **Hangs** — ISYS Capture **8** timeout |
 | **Sign / load** | `~/mok-key/MOK.{priv,der}` | Required under Secure Boot; lockdown blocks **debugfs** |

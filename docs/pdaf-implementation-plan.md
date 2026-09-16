@@ -302,9 +302,10 @@ is submitted anywhere; it is deleted once WP2 replaces it. Deliverable even if w
    existing `pdaf_trial` param with a value that writes `0x0B80=0x0100`, `0x0116=0x3000`
    (after the mode table, before stream-on), and optionally `0x0900=0x0011` as 8-bit writes;
    keep `get_frame_desc` as is (the ISYS hack ignores it). Keep VBLANK at the stock
-   `vts_def - height` first; the "tall vblank" idea (`S5K3J1_VBLANK_PD_AF`, `:731-732`) was a
-   guess for embedded-in-frame PD lines and is probably wrong for a VC/DT sideband; A/B it only
-   if no PAF frames arrive.
+   `vts_def - height` first; the "tall vblank" idea (`S5K3J1_VBLANK_PD_AF`) was a guess for
+   embedded-in-frame PD lines and is probably wrong for a VC/DT sideband. **Resolved: it was
+   wrong, and it cost 16.5% of frames — the path is gone. See "The tall vblank, closed" at the
+   end of this document.**
 3. **Capture**: stop pipewire/wireplumber (restart in the same command), then per
    `ipu6-isys.rst:132-155`: `media-ctl -l` the CSI2 port-1 pad 2 -> "Intel IPU6 ISYS Capture 9"
    link, `media-ctl -V` formats, `yavta -B meta-capture -f GENERIC_8 -s 3968x684 -c30 --file=...`
@@ -915,3 +916,83 @@ interesting. It is a passive observation on a working camera, so it costs nothin
 it is the kind of evidence WP0 needed and never had: `scripts/dump-csi2-port.py` reads 0x300
 bytes of per-port GPREG/IRQ/PPI2CSI/FE registers straight off the PCI BAR while a stream runs,
 and `reference/csi2-port1-rear-live.bin` is a known-good reference capture.
+
+## The tall vblank, closed — 2026-09-16
+
+The lead left dangling by the WP0 follow-up ("default 684-line vblank costs the rear camera
+~17% frame rate") is now measured, and it was real. The path has been removed:
+`s5k3j1-vblank-stock-frame-length`, commit `6f14227` in the ipu6-drivers fork.
+
+### What the code did
+
+`s5k3j1_default_vblank()` returned `S5K3J1_VBLANK_PD_AF` (684) rather than the mode table's
+own `vts_def - height` (2856 - 2736 = 120) whenever `s5k3j1_pdaf_enabled()` was true — which
+is **the default** on the INT346D rear camera, since the `pdaf_trial` param it consults
+defaults to 0. `__v4l2_ctrl_handler_setup()` then wrote a frame length of 2736 + 684 = 3420
+over the `0x0340 = 0x0b28` (2856) the mode table had just set, on every stream start.
+
+### Why 684 was wrong
+
+It was a guess: the hypothesis that the Windows "PAFi" 3968x684 region was embedded as extra
+lines *inside* the image frame, so the frame had to be made taller to carry them. Two later
+findings each kill it independently:
+
+- A VC/DT sideband needs no room in the image frame at all (noted in WP0's plan above, which
+  called the idea "probably wrong for a VC/DT sideband").
+- The real Windows PDAF mode is a **separate register table** — RVA `0x21630` in
+  `s5k3j1sx04.sys` — with its own frame length of `0x0b1e`. Not a taller stock table.
+
+And nothing was ever bought with it: no PDAF data has ever been captured on this sensor, and
+every PDAF register from the Windows trace measured inert.
+
+### The measurement
+
+Same module load, same session, arms **interleaved and each repeated** — the project rule
+after being burned by unreplicated observations. The VBLANK control was forced either way on
+the sensor subdev with `v4l2-ctl`, which isolates the frame length exactly and leaves every
+other register alone. 40 frames per arm into a discarding `yavta` (no `--file`, so disk
+throughput cannot enter a frame-rate measurement), rate taken as the median of yavta's
+per-frame values after dropping three warm-up frames:
+
+| Arm | VBLANK | frame length | fps | ms/frame |
+| --- | --- | --- | --- | --- |
+| tall (driver default) | 684 | 3420 | 25.188 | 39.702 |
+| stock (`vts_def - height`) | 120 | 2856 | 30.161 | 33.155 |
+| tall, repeat | 684 | 3420 | 25.188 | 39.702 |
+| stock, repeat | 120 | 2856 | 30.161 | 33.155 |
+
+Both repeats reproduce to three decimal places. The frame-interval ratio is **1.19747**; the
+frame-length ratio 3420/2856 is **1.19748**. Both arms also sit 1.1% under what
+`pixel_rate / (PPL x frame length)` predicts (25.460 and 30.488) — the *same* offset either
+way, so the model holds and the frame length is the only thing moving.
+
+**16.5% of frames were being thrown away, and the mode table named for 30fps was delivering
+25.** That also explains the 25.19 fps recorded in the WP0 follow-up above, which was never
+chased at the time.
+
+### The trade-off, stated
+
+VBLANK bounds the exposure range, so maximum integration time drops from 3412 to 2848 lines —
+39.2ms to 32.7ms at this line time. That is inherent: 30fps and a 39ms exposure cannot both
+hold. The VBLANK control's own range is untouched (120 to 30031), so userspace that wants the
+longer exposure can still buy it back at the cost of frame rate.
+
+### Side effect on `pdaf_trial`
+
+The tall vblank was the only thing distinguishing `pdaf_trial=2` from `pdaf_trial=1`, so the
+param collapses to `0=on, 1=disable`, and both places that test it now read the same way
+(`!pdaf_trial`).
+
+### Independence
+
+This is independent of the PDAF mode-table port on `s5k3j1-pdaf-win-mode-table`, which
+carries its own frame length and already excluded itself from this path.
+
+### Still to confirm on the patched build
+
+The measurement above isolates the frame length with the **stock** module, by forcing the
+VBLANK control — which is the cleaner experiment, since it changes nothing else. Three checks
+against the patched module itself are scripted but not yet run (they need root, and the sudo
+prompt timed out unattended): the I2C read-back of `0x0340` mid-stream for each arm, the
+`pdaf_trial=0` vs `=1` param arm, and loading the patched `.ko` to confirm the default VBLANK
+now comes up at 120. Script: `scratchpad/vblank-verify-root.sh` from that session.

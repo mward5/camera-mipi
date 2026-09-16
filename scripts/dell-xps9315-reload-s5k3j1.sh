@@ -22,5 +22,5 @@ sleep 1
 sudo modprobe s5k3j1 "pdaf_trial=${PDAF_TRIAL}"
 echo "pdaf_trial=$(cat /sys/module/s5k3j1/parameters/pdaf_trial)"
 if [[ "$(cat /sys/module/s5k3j1/parameters/pdaf_trial)" != "0" ]]; then
-	echo "WARNING: pdaf_trial should be 0 for INT346D rear (PDAF on + tall vblank)" >&2
+	echo "WARNING: pdaf_trial should be 0 for INT346D rear (PDAF regs left as the mode table sets them)" >&2
 fi
