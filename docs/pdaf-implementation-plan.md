@@ -1261,3 +1261,54 @@ So the receiver-side measurement has to come from inside the kernel, which is th
 per-VC counter above. That needs an `intel-ipu6-isys` rebuild, install and reboot — unlike
 `s5k3j1`, that module is in the initrd. The alternative is turning Secure Boot off in the
 BIOS, which is a deliberate downgrade of the machine and was re-enabled on purpose.
+
+### Receiver side: no second virtual channel — 2026-09-16
+
+The ISYS patch (`s5k3j1-csi2-vc-probe` in the kernel fork, `csi2_vc_probe` module param)
+reports the CSI_SYNC status word on stream stop. Across four interleaved arms, eight stream
+stops:
+
+```
+csi2-1 vc probe: status 0x00000003, active: VC0/FS/FE     (all eight, bit-identical)
+```
+
+**VC0 only, in both arms.** The stock arms show `VC0`, so the instrument is working — that
+control matters, because the first version of the patch reported `0x00000000` for every arm
+including stock, which run alone would have read as a real negative. `MASK` gates the status
+latch, not just the interrupt output, so the sync status can only be observed with the sync
+IRQ unmasked.
+
+Also note the error counts: `Inter-frame long packet discarded` appears in both arms at the
+same rate, so it is not caused by the PDAF mode and is not evidence of a sideband.
+
+### Where WP0 stands
+
+The central question — does the s5k3j1 emit its PAFi sideband — now has a substantial body of
+**controlled negative** evidence, which it never had before:
+
+| hypothesis | status |
+| --- | --- |
+| sideband on a second virtual channel | **excluded**, measured with a working control |
+| extra lines per frame | **excluded**, vblank sweep, 33.6% vs 0.0065% model spread |
+| PD embedded at one row in four | **excluded**, row%4 is period-2 Bayer, identical both arms |
+| PD at column residues 2/4/8/16 | **excluded**, period-2 Bayer only |
+| PD in the 24 trailing samples per line | **excluded**, identical between arms |
+| any change in frame size or content | **excluded** |
+| PDAF registers doing anything | **excluded**, Round 1 and the whole-table run |
+
+**Not excluded:** a second data type sharing VC0. The Windows trace's `0x0116 = 0x3000`
+points exactly there, the port register block has no per-DT field, and the only way to test it
+is to configure an input pin for that DT — which is the forced-pin approach that failed
+through twelve rounds of WP0 and should not be resumed.
+
+The one unexplained observation is the constant +0.8498% line time. It is consistent with an
+uncaptured second DT, and equally consistent with some register among the 183 that differ
+between the tables altering readout timing slightly. Nothing distinguishes those without
+per-DT visibility.
+
+**Recommendation.** Sensor-side and receiver-side are both now exhausted at reasonable cost.
+The remaining cheap lead is static: `PDAF_Type` is read at `.text` RVA `0x9518` in
+`s5k3j1sx04.sys` and this work only followed it as far as mode-table selection. What else that
+value gates is a question about a binary already in the repo, with no hardware risk and no
+reboots. If that yields nothing, WP5 denoise remains the change that actually improves the
+camera, and PDAF should be recorded as not reachable on this sensor by any means found here.
